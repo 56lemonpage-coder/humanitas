@@ -161,27 +161,6 @@ window.editInline = (id) => {
   input.addEventListener('blur', done);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter'){e.preventDefault();input.blur();} if(e.key==='Escape'){el.textContent=orig;} });
 };
-window.openFieldEdit = (displayId, editId, actionsId) => {
-  if (!isAdmin) return;
-  document.getElementById(displayId).style.display='none';
-  document.getElementById(editId).value = document.getElementById(displayId).textContent;
-  document.getElementById(editId).style.display='block';
-  document.getElementById(actionsId).style.display='block';
-  document.getElementById(editId).focus();
-};
-window.saveField = (displayId, editId, actionsId) => {
-  const v = document.getElementById(editId).value;
-  document.getElementById(displayId).textContent=v;
-  document.getElementById(displayId).style.display='block';
-  document.getElementById(editId).style.display='none';
-  document.getElementById(actionsId).style.display='none';
-  dbUpd('texts',{[displayId]:v});
-};
-window.cancelEdit = (displayId, editId, actionsId) => {
-  document.getElementById(displayId).style.display='block';
-  document.getElementById(editId).style.display='none';
-  document.getElementById(actionsId).style.display='none';
-};
 window.editTicker = () => {
   if (!isAdmin) return;
   const v = prompt('공지 텍스트 수정:', texts.ticker);
@@ -412,9 +391,14 @@ async function renderComments(postKey) {
     const commentDiv = document.createElement('div');
     commentDiv.className = 'comment-item';
     const isMyComment = myCommentIds[c._key] === true;
-    const deleteBtn = isMyComment || isAdmin 
-      ? `<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ ${isMyComment ? '삭제' : 'DEL'} ]</button>`
-      : '';
+    
+    let deleteBtn = '';
+    if (isMyComment) {
+      deleteBtn = `<button class="btn btn-r" style="font-size:8px;padding:2px 6px;background:#ff41411a" onclick="delComment('${postKey}','${c._key}')">[ 나의 댓글 삭제 ]</button>`;
+    } else if (isAdmin) {
+      deleteBtn = `<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ DEL ]</button>`;
+    }
+    
     commentDiv.innerHTML = `
       <div class="comment-header">
         <span class="comment-author">${c.author}${isMyComment ? ' (나)' : ''}</span>
@@ -453,6 +437,12 @@ window.saveComment = async () => {
 window.delComment = async (postKey, commentKey) => {
   if(!confirm('댓글을 삭제하시겠습니까?')) return;
   await dbDel(`posts/${postKey}/comments/${commentKey}`);
+  
+  // 로컬 스토리지에서 댓글 ID 제거
+  const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
+  delete myCommentIds[commentKey];
+  localStorage.setItem('myCommentIds', JSON.stringify(myCommentIds));
+  
   renderComments(postKey);
 };
 
@@ -831,7 +821,6 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .edit-overlay-btn:hover{border-color:var(--green);color:var(--green);}
 .admin-logged-in .edit-overlay-btn{display:block;}
 .editable-inline-input{background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:inherit;padding:2px 6px;outline:none;width:100%;}
-.editable-textarea{width:100%;background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:12px;padding:8px 12px;outline:none;resize:vertical;height:140px;}
 
 /* ── BUTTONS ── */
 .btn{font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 10px;border:1px solid var(--text-dim);color:var(--text-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;}
@@ -1021,14 +1010,8 @@ input[type="file"]{display:none;}
           </div>
 
           <div class="home-body">
-            <div class="notice-block editable-block">
+            <div class="notice-block">
               <div class="notice-text" id="mainNotice">로딩 중...<span class="cursor"></span></div>
-              <textarea class="editable-textarea" id="mainNoticeEdit"></textarea>
-              <div style="margin-top:6px;display:none" id="mainNoticeActions">
-                <button class="btn btn-g" onclick="saveField('mainNotice','mainNoticeEdit','mainNoticeActions')">[ SAVE ]</button>
-                <button class="btn" style="margin-left:4px" onclick="cancelEdit('mainNotice','mainNoticeEdit','mainNoticeActions')">[ CANCEL ]</button>
-              </div>
-              <button class="edit-overlay-btn" onclick="openFieldEdit('mainNotice','mainNoticeEdit','mainNoticeActions')">EDIT</button>
             </div>
 
             <div class="home-grid">
@@ -1074,26 +1057,14 @@ input[type="file"]{display:none;}
             <div class="section-header">[ GUILD DESC ]</div>
             <div class="section-sub">// 바른인간생활본부 · 공식 소개 파일</div>
 
-            <div class="guild-block editable-block">
+            <div class="guild-block">
               <div class="guild-block-title">// OVERVIEW</div>
               <div class="guild-text" id="guildOverview">로딩 중...</div>
-              <textarea class="editable-textarea" id="guildOverviewEdit"></textarea>
-              <div style="margin-top:6px;display:none" id="guildOverviewActions">
-                <button class="btn btn-g" onclick="saveField('guildOverview','guildOverviewEdit','guildOverviewActions')">[ SAVE ]</button>
-                <button class="btn" style="margin-left:4px" onclick="cancelEdit('guildOverview','guildOverviewEdit','guildOverviewActions')">[ CANCEL ]</button>
-              </div>
-              <button class="edit-overlay-btn" onclick="openFieldEdit('guildOverview','guildOverviewEdit','guildOverviewActions')">EDIT</button>
             </div>
 
-            <div class="guild-block editable-block">
+            <div class="guild-block">
               <div class="guild-block-title">// OBJECTIVES</div>
               <div class="guild-text" id="guildObjectives">로딩 중...</div>
-              <textarea class="editable-textarea" id="guildObjectivesEdit"></textarea>
-              <div style="margin-top:6px;display:none" id="guildObjectivesActions">
-                <button class="btn btn-g" onclick="saveField('guildObjectives','guildObjectivesEdit','guildObjectivesActions')">[ SAVE ]</button>
-                <button class="btn" style="margin-left:4px" onclick="cancelEdit('guildObjectives','guildObjectivesEdit','guildObjectivesActions')">[ CANCEL ]</button>
-              </div>
-              <button class="edit-overlay-btn" onclick="openFieldEdit('guildObjectives','guildObjectivesEdit','guildObjectivesActions')">EDIT</button>
             </div>
 
             <div id="extraSectionsContainer"></div>
