@@ -405,14 +405,21 @@ async function renderComments(postKey) {
   
   comments.sort((a,b) => a.ts - b.ts);
   
+  // 로컬 스토리지에서 사용자가 작성한 댓글 ID 목록 가져오기
+  const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
+  
   comments.forEach(c => {
     const commentDiv = document.createElement('div');
     commentDiv.className = 'comment-item';
+    const isMyComment = myCommentIds[c._key] === true;
+    const deleteBtn = isMyComment || isAdmin 
+      ? `<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ ${isMyComment ? '삭제' : 'DEL'} ]</button>`
+      : '';
     commentDiv.innerHTML = `
       <div class="comment-header">
-        <span class="comment-author">${c.author}</span>
+        <span class="comment-author">${c.author}${isMyComment ? ' (나)' : ''}</span>
         <span class="comment-date">${c.date}</span>
-        ${isAdmin?`<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ DEL ]</button>`:''}
+        ${deleteBtn}
       </div>
       <div class="comment-body">${c.body}</div>
     `;
@@ -430,7 +437,12 @@ window.saveComment = async () => {
   const now = new Date();
   const date = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   
-  await dbPush(`posts/${postKey}/comments`, {author, body, date, ts: Date.now()});
+  const ref = await dbPush(`posts/${postKey}/comments`, {author, body, date, ts: Date.now()});
+  
+  // 로컬 스토리지에 본인이 작성한 댓글 ID 저장
+  const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
+  myCommentIds[ref.key] = true;
+  localStorage.setItem('myCommentIds', JSON.stringify(myCommentIds));
   
   document.getElementById('commentAuthor').value = '';
   document.getElementById('commentBody').value = '';
