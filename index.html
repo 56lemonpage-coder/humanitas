@@ -4,240 +4,635 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>바른인간생활본부</title>
+<!-- Firebase SDKs (CDN, no build tool needed) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, get, onValue, push, remove, update }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// ── Firebase init ──────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCSm0i92iOJWiujWNaPyEMJARfc-9T2BB4",
+  authDomain: "humanitas-4aba5.firebaseapp.com",
+  databaseURL: "https://humanitas-4aba5-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "humanitas-4aba5",
+  storageBucket: "humanitas-4aba5.firebasestorage.app",
+  messagingSenderId: "186880765687",
+  appId: "1:186880765687:web:ad54b19195a0504d816df2"
+};
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+// ── helpers ────────────────────────────────────────────────────
+const dbRef  = (path) => ref(db, path);
+const dbSet  = (path, val) => set(dbRef(path), val);
+const dbGet  = (path) => get(dbRef(path));
+const dbPush = (path, val) => push(dbRef(path), val);
+const dbDel  = (path) => remove(dbRef(path));
+const dbUpd  = (path, val) => update(dbRef(path), val);
+const dbListen = (path, cb) => onValue(dbRef(path), snap => cb(snap.val()));
+
+// ── constants ──────────────────────────────────────────────────
+const ADMIN_PW = 'IAN2403';
+let isAdmin = false;
+
+const DEF_TEXTS = {
+  mainNotice:       "에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,\n이곳은 에린의 규격에서 벗어난 존재들의 은신처입니다.\n\n인간이라는 종을 연구하고, 생존합니다.\n오늘도 우리는 '바른 인간'을 연습 중입니다.",
+  homeTitleSub:     'GUILD · NON-HUMAN ADAPTATION DIVISION',
+  currentObj:       '인간 관찰',
+  currentObjDesc:   '연구 · 생존 · 위장',
+  alertLevel:       'LOW',
+  alertDesc:        '정체 노출 위험도',
+  boardSub:         '// 게시판 · 연구 기록 · 토론 아카이브',
+  guildOverview:    "에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,\n이곳은 에린의 규격에서 벗어난 인외(人外)들의 은신처입니다.\n\n인간들은 자신들과 다른 규격 외의 존재를 향해 본능적인 공포와 적대감을 드러냅니다.\n이에 생존의 위협을 느낀 인외들이 정체를 숨기고 사회에 녹아들기 위해 설립되었습니다.",
+  guildObjectives:  "[연구] 인간의 도덕, 규범, 사소한 습관까지 데이터화하여 학습합니다.\n\n[교정] 정체가 들통나 공동체 전체가 위험해지는 것을 방지하기 위해 서로의 '인간 연기'를 교정해 줍니다.\n\n[분석] 정기적으로 모여 인간다운 행동 양식에 대한 비논리적이고 복잡한 감정 체계를 분석합니다.\n\n※ 다만 각자의 본성이 워낙 강렬한 탓에, 결론은 늘 기묘한 방향으로 흐릅니다.",
+  ticker:           '// 바른인간생활본부 길드원 모집 중 · 인외 환영 · 정체 보장 · 인간 연기 교정 서비스 제공 · 매주 정기 토론 진행 · 에린 네트워크 연결됨 · 오늘도 바른 인간을 연습합니다 //'
+};
+
+const DEF_IAN = { id:'001', role:'GUILD MASTER', name:'IAN', type:'미지의 존재 · 사제 (위장)', desc:'우주의 찌꺼기. 늪에서 이안의 육체와 기억을 삼킨 존재. 현재 교단 사제로 위장 중.', photo:'' };
+
+// ── state (populated by Firebase listeners) ───────────────────
+let texts    = { ...DEF_TEXTS };
+let members  = [];
+let posts    = [];
+let sections = [];
+
+// ── init defaults if first run ─────────────────────────────────
+async function initDefaults() {
+  const snap = await dbGet('texts');
+  if (!snap.exists()) {
+    await dbSet('texts', DEF_TEXTS);
+  }
+  const mSnap = await dbGet('members');
+  if (!mSnap.exists()) {
+    await dbPush('members', DEF_IAN);
+  }
+}
+
+// ── real-time listeners ────────────────────────────────────────
+function startListeners() {
+  // texts
+  dbListen('texts', val => {
+    if (!val) return;
+    texts = { ...DEF_TEXTS, ...val };
+    applyTexts();
+  });
+
+  // members
+  dbListen('members', val => {
+    members = val
+      ? Object.entries(val).map(([k, v]) => ({ _key: k, ...v }))
+      : [];
+    renderMembers();
+    document.getElementById('memberCountDisplay').textContent = members.length + '명';
+  });
+
+  // posts
+  dbListen('posts', val => {
+    posts = val
+      ? Object.entries(val)
+          .map(([k, v]) => ({ _key: k, ...v }))
+          .filter(p => !p.deleted)
+          .sort((a, b) => b.ts - a.ts)
+      : [];
+    renderBoard();
+  });
+
+  // sections
+  dbListen('sections', val => {
+    sections = val
+      ? Object.entries(val).map(([k, v]) => ({ _key: k, ...v }))
+      : [];
+    renderSections();
+  });
+}
+
+// ── apply texts to DOM ─────────────────────────────────────────
+function applyTexts() {
+  const ids = ['mainNotice','homeTitleSub','currentObj','currentObjDesc',
+               'alertLevel','alertDesc','boardSub','guildOverview','guildObjectives'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = texts[id] || DEF_TEXTS[id];
+  });
+  buildTicker();
+}
+
+function buildTicker() {
+  const inner = document.getElementById('tickerInner');
+  const msg   = texts.ticker || DEF_TEXTS.ticker;
+  inner.innerHTML = '';
+  for (let i = 0; i < 2; i++) {
+    const s = document.createElement('span');
+    s.className = 'ticker-item';
+    s.textContent = msg;
+    inner.appendChild(s);
+  }
+}
+
+// ── admin ──────────────────────────────────────────────────────
+window.openAdminLogin = () => {
+  document.getElementById('adminPwInput').value = '';
+  document.getElementById('adminError').style.display = 'none';
+  openModal('adminLoginModal');
+};
+
+window.tryLogin = () => {
+  if (document.getElementById('adminPwInput').value === ADMIN_PW) {
+    isAdmin = true;
+    document.body.classList.add('admin-logged-in');
+    document.getElementById('logoutBtn').style.display = 'block';
+    document.getElementById('adminAccessBtn').style.display = 'none';
+    closeModal('adminLoginModal');
+    renderMembers(); renderBoard(); renderSections();
+  } else {
+    document.getElementById('adminError').style.display = 'block';
+  }
+};
+
+window.adminLogout = () => {
+  isAdmin = false;
+  document.body.classList.remove('admin-logged-in');
+  document.getElementById('logoutBtn').style.display = 'none';
+  document.getElementById('adminAccessBtn').style.display = 'block';
+  renderMembers(); renderBoard(); renderSections();
+};
+
+// ── navigation ─────────────────────────────────────────────────
+window.goto = (page) => {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  const pages = ['home','guild','members','board'];
+  document.querySelectorAll('nav a')[pages.indexOf(page)]?.classList.add('active');
+};
+
+// ── inline text edit (saves to Firebase) ──────────────────────
+window.editInline = (id, type) => {
+  if (!isAdmin) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  const orig = el.textContent.trim();
+  const input = document.createElement('input');
+  input.className = 'editable-inline-input';
+  input.value = orig;
+  el.textContent = '';
+  el.appendChild(input);
+  input.focus(); input.select();
+  const done = () => {
+    const v = input.value.trim() || orig;
+    el.textContent = v;
+    dbUpd('texts', { [id]: v });
+  };
+  input.addEventListener('blur', done);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { el.textContent = orig; }
+  });
+};
+
+window.openFieldEdit = (displayId, editId, actionsId) => {
+  if (!isAdmin) return;
+  const display  = document.getElementById(displayId);
+  const edit     = document.getElementById(editId);
+  const actions  = document.getElementById(actionsId);
+  edit.value     = display.textContent;
+  display.style.display  = 'none';
+  edit.style.display     = 'block';
+  actions.style.display  = 'block';
+  edit.focus();
+};
+
+window.saveField = (displayId, editId, actionsId) => {
+  const display  = document.getElementById(displayId);
+  const edit     = document.getElementById(editId);
+  const actions  = document.getElementById(actionsId);
+  const v = edit.value;
+  display.textContent       = v;
+  display.style.display     = 'block';
+  edit.style.display        = 'none';
+  actions.style.display     = 'none';
+  dbUpd('texts', { [displayId]: v });
+};
+
+window.cancelEdit = (displayId, editId, actionsId) => {
+  document.getElementById(displayId).style.display  = 'block';
+  document.getElementById(editId).style.display     = 'none';
+  document.getElementById(actionsId).style.display  = 'none';
+};
+
+// ticker double-click edit
+window.editTicker = () => {
+  if (!isAdmin) return;
+  const v = prompt('공지 텍스트 수정:', texts.ticker);
+  if (v !== null) dbUpd('texts', { ticker: v });
+};
+
+// ── members ────────────────────────────────────────────────────
+function renderMembers() {
+  const grid = document.getElementById('memberGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  members.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'member-card';
+    card.innerHTML = `
+      <div class="member-card-top">
+        <div class="member-photo-wrap">
+          ${m.photo
+            ? `<img src="${m.photo}" alt="${m.name}">`
+            : `<div class="member-photo-placeholder">NO<br>PHOTO</div>`}
+          <button class="photo-upload-btn" onclick="triggerPhoto('${m._key}')">[ PHOTO ]</button>
+          <input type="file" id="pf_${m._key}" accept="image/*" onchange="uploadPhoto(this,'${m._key}')">
+        </div>
+        <div class="member-card-info">
+          <div class="member-card-id">ID #${m.id} · ${m.role}</div>
+          <div class="member-card-name">${m.name}</div>
+          <div class="member-card-type">${m.type}</div>
+        </div>
+      </div>
+      <div class="member-card-desc">${m.desc}</div>
+      <div class="member-card-actions" style="${isAdmin ? '' : 'display:none'}">
+        <button class="btn btn-g" onclick="openEditMember('${m._key}')" style="font-size:9px">[ EDIT ]</button>
+        ${m.id !== '001' ? `<button class="btn btn-r" onclick="delMember('${m._key}')" style="font-size:9px">[ DEL ]</button>` : ''}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+window.triggerPhoto = (key) => document.getElementById('pf_' + key).click();
+
+window.uploadPhoto = (input, key) => {
+  const f = input.files[0]; if (!f) return;
+  // Compress image before saving to Firebase (base64 limit ~1MB)
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 300;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const data = canvas.toDataURL('image/jpeg', 0.75);
+      dbUpd('members/' + key, { photo: data });
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(f);
+};
+
+window.previewPhoto = (input, imgId, placeholderId) => {
+  const f = input.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = e => {
+    const img = document.getElementById(imgId);
+    img.src = e.target.result; img.style.display = 'block';
+    if (placeholderId) document.getElementById(placeholderId).style.display = 'none';
+  };
+  r.readAsDataURL(f);
+};
+
+window.openAddMember = () => {
+  ['mName','mType','mDesc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('mRole').value = 'MEMBER';
+  const img = document.getElementById('newPhotoImg');
+  img.style.display = 'none'; img.src = '';
+  document.getElementById('newPhotoPlaceholder').style.display = 'flex';
+  openModal('addMemberModal');
+};
+
+window.saveMember = async () => {
+  const name = document.getElementById('mName').value.trim();
+  if (!name) return;
+  const type  = document.getElementById('mType').value.trim();
+  const role  = document.getElementById('mRole').value.trim() || 'MEMBER';
+  const desc  = document.getElementById('mDesc').value.trim();
+  const imgEl = document.getElementById('newPhotoImg');
+  const photo = imgEl.style.display !== 'none' && imgEl.src ? imgEl.src : '';
+  const id    = String(members.length + 1).padStart(3, '0');
+  await dbPush('members', { id, role, name, type, desc, photo });
+  closeModal('addMemberModal');
+};
+
+window.openEditMember = (key) => {
+  const m = members.find(x => x._key === key);
+  if (!m) return;
+  document.getElementById('editMIdx').value  = key;
+  document.getElementById('editMName').value = m.name;
+  document.getElementById('editMType').value = m.type;
+  document.getElementById('editMRole').value = m.role;
+  document.getElementById('editMDesc').value = m.desc;
+  const img = document.getElementById('editPhotoImg');
+  img.src = m.photo || '';
+  img.style.background = m.photo ? 'transparent' : 'var(--green-dark)';
+  openModal('editMemberModal');
+};
+
+window.saveEditMember = async () => {
+  const key  = document.getElementById('editMIdx').value;
+  const m    = members.find(x => x._key === key);
+  if (!m) return;
+  const name = document.getElementById('editMName').value.trim() || m.name;
+  const type = document.getElementById('editMType').value.trim();
+  const role = document.getElementById('editMRole').value.trim() || m.role;
+  const desc = document.getElementById('editMDesc').value.trim();
+  const img  = document.getElementById('editPhotoImg');
+  const updates = { name, type, role, desc };
+  if (img.src && !img.src.endsWith('#') && img.src !== window.location.href) {
+    updates.photo = img.src;
+  }
+  await dbUpd('members/' + key, updates);
+  closeModal('editMemberModal');
+};
+
+window.delMember = async (key) => {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await dbDel('members/' + key);
+};
+
+// ── board ──────────────────────────────────────────────────────
+function renderBoard() {
+  const list = document.getElementById('boardList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!posts.length) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:20px 0">// 게시물이 없습니다</div>';
+    return;
+  }
+  posts.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.className = 'board-item';
+    item.innerHTML = `
+      <span class="board-item-num">${String(i + 1).padStart(3, '0')}</span>
+      <span class="board-item-title" onclick="viewPost('${p._key}')">${p.title}</span>
+      <span class="board-item-author">${p.author}</span>
+      <span class="board-item-date">${p.date}</span>
+      ${isAdmin ? `<button class="btn btn-r" onclick="delPost('${p._key}')" style="font-size:9px;margin-left:8px;flex-shrink:0">[ DEL ]</button>` : ''}
+    `;
+    list.appendChild(item);
+  });
+}
+
+window.savePost = async () => {
+  const title  = document.getElementById('postTitle').value.trim();
+  const body   = document.getElementById('postContent').value.trim();
+  if (!title || !body) return;
+  const author = document.getElementById('postAuthor').value.trim() || '익명';
+  const now    = new Date();
+  const date   = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  await dbPush('posts', { title, author, date, body, deleted: false, ts: Date.now() });
+  closeModal('writePostModal');
+  ['postTitle','postAuthor','postContent'].forEach(id => document.getElementById(id).value = '');
+};
+
+window.viewPost = (key) => {
+  const p = posts.find(x => x._key === key);
+  if (!p) return;
+  document.getElementById('vPostTitle').textContent = p.title;
+  document.getElementById('vPostMeta').textContent  = `AUTHOR: ${p.author}  ·  DATE: ${p.date}`;
+  document.getElementById('vPostBody').textContent  = p.body;
+  document.getElementById('vPostAdmin').innerHTML   = isAdmin
+    ? `<button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE POST ]</button>`
+    : '';
+  openModal('viewPostModal');
+};
+
+window.delPost = async (key) => {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await dbUpd('posts/' + key, { deleted: true });
+};
+
+// ── extra guild sections ───────────────────────────────────────
+function renderSections() {
+  const c = document.getElementById('extraSectionsContainer');
+  if (!c) return;
+  c.innerHTML = '';
+  sections.forEach(sec => {
+    const div = document.createElement('div');
+    div.className = 'guild-block editable-block';
+    div.innerHTML = `
+      <div class="guild-block-title">// ${sec.title}
+        ${isAdmin
+          ? `<button class="btn btn-g" onclick="openEditSection('${sec._key}')" style="font-size:9px;margin-left:auto">[ EDIT ]</button>
+             <button class="btn btn-r" onclick="delSection('${sec._key}')" style="font-size:9px;margin-left:4px">[ DEL ]</button>`
+          : ''}
+      </div>
+      <div class="guild-text">${sec.content}</div>
+    `;
+    c.appendChild(div);
+  });
+}
+
+let editingSectionKey = null;
+
+window.openAddSection = () => {
+  editingSectionKey = null;
+  document.getElementById('addSectionModalTitle').textContent = '// ADD SECTION';
+  document.getElementById('addSectionSubmit').textContent    = '[ ADD ]';
+  document.getElementById('newSecTitle').value   = '';
+  document.getElementById('newSecContent').value = '';
+  openModal('addSectionModal');
+};
+
+window.openEditSection = (key) => {
+  const sec = sections.find(x => x._key === key);
+  if (!sec) return;
+  editingSectionKey = key;
+  document.getElementById('addSectionModalTitle').textContent = '// EDIT SECTION';
+  document.getElementById('addSectionSubmit').textContent    = '[ SAVE ]';
+  document.getElementById('newSecTitle').value   = sec.title;
+  document.getElementById('newSecContent').value = sec.content;
+  openModal('addSectionModal');
+};
+
+window.saveSection = async () => {
+  const title   = document.getElementById('newSecTitle').value.trim();
+  const content = document.getElementById('newSecContent').value.trim();
+  if (!title) return;
+  if (editingSectionKey) {
+    await dbUpd('sections/' + editingSectionKey, { title, content });
+  } else {
+    await dbPush('sections', { title, content });
+  }
+  closeModal('addSectionModal');
+  editingSectionKey = null;
+};
+
+window.delSection = async (key) => {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await dbDel('sections/' + key);
+};
+
+// ── modal helpers ──────────────────────────────────────────────
+window.openModal  = (id) => document.getElementById(id).classList.add('open');
+window.closeModal = (id) => document.getElementById(id).classList.remove('open');
+
+// ── clock ──────────────────────────────────────────────────────
+function tick() {
+  const t = new Date();
+  const s = [t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2,'0')).join(':');
+  document.getElementById('clockDisplay').textContent = s;
+  document.getElementById('statusTime').textContent   = s;
+}
+setInterval(tick, 1000); tick();
+
+// ── bootstrap ──────────────────────────────────────────────────
+async function boot() {
+  showLoading(true);
+  await initDefaults();
+  startListeners();
+  // listeners are async, small delay for first render
+  setTimeout(() => showLoading(false), 1200);
+}
+
+function showLoading(show) {
+  document.getElementById('loadingScreen').style.display = show ? 'flex' : 'none';
+}
+
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('open'); });
+});
+
+document.getElementById('adminPwInput')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') window.tryLogin();
+});
+
+boot();
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Noto+Sans+KR:wght@300;400;700&display=swap');
-
-  :root {
-    --green: #00ff41;
-    --green-dim: #00b32c;
-    --green-dark: #003a0f;
-    --green-glow: rgba(0,255,65,0.15);
-    --bg: #020c04;
-    --panel: #040f05;
-    --border: #00ff4144;
-    --text: #c8ffd4;
-    --text-dim: #5a8f63;
-    --scanline: rgba(0,0,0,0.45);
-  }
-
-  * { margin:0; padding:0; box-sizing:border-box; }
-
-  body {
-    background:var(--bg); color:var(--green);
-    font-family:'Share Tech Mono',monospace;
-    min-height:100vh; display:flex; overflow:hidden; position:relative;
-  }
-
-  body::before {
-    content:''; position:fixed; inset:0;
-    background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,var(--scanline) 2px,var(--scanline) 4px);
-    pointer-events:none; z-index:9999; opacity:0.18;
-  }
-
-  body::after {
-    content:''; position:fixed; inset:-50%; width:200%; height:200%;
-    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-    opacity:0.03; pointer-events:none; z-index:9998; animation:drift 8s steps(1) infinite;
-  }
-
-  @keyframes drift {
-    0%{transform:translate(0,0)} 10%{transform:translate(-2%,-1%)} 20%{transform:translate(1%,2%)}
-    30%{transform:translate(-1%,1%)} 40%{transform:translate(2%,-2%)} 50%{transform:translate(-2%,2%)}
-    60%{transform:translate(1%,-1%)} 70%{transform:translate(-1%,0)} 80%{transform:translate(2%,1%)}
-    90%{transform:translate(-1%,-2%)} 100%{transform:translate(0,0)}
-  }
-  @keyframes flicker {
-    0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:0.7} 94%{opacity:1} 96%{opacity:0.8} 97%{opacity:1}
-  }
-  @keyframes glitch {
-    0%{clip-path:none;transform:none} 2%{clip-path:polygon(0 15%,100% 15%,100% 16%,0 16%);transform:translateX(-4px)}
-    4%{clip-path:polygon(0 70%,100% 70%,100% 72%,0 72%);transform:translateX(4px)}
-    6%{clip-path:none;transform:none} 100%{clip-path:none;transform:none}
-  }
+  :root{--green:#00ff41;--green-dim:#00b32c;--green-dark:#003a0f;--green-glow:rgba(0,255,65,0.15);--bg:#020c04;--panel:#040f05;--border:#00ff4144;--text:#c8ffd4;--text-dim:#5a8f63;--scanline:rgba(0,0,0,0.45);}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--green);font-family:'Share Tech Mono',monospace;min-height:100vh;display:flex;overflow:hidden;position:relative;}
+  body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,var(--scanline) 2px,var(--scanline) 4px);pointer-events:none;z-index:9999;opacity:0.18;}
+  body::after{content:'';position:fixed;inset:-50%;width:200%;height:200%;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");opacity:.03;pointer-events:none;z-index:9998;animation:drift 8s steps(1) infinite;}
+  @keyframes drift{0%{transform:translate(0,0)}10%{transform:translate(-2%,-1%)}20%{transform:translate(1%,2%)}30%{transform:translate(-1%,1%)}40%{transform:translate(2%,-2%)}50%{transform:translate(-2%,2%)}60%{transform:translate(1%,-1%)}70%{transform:translate(-1%,0)}80%{transform:translate(2%,1%)}90%{transform:translate(-1%,-2%)}100%{transform:translate(0,0)}}
+  @keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:.7}94%{opacity:1}96%{opacity:.8}97%{opacity:1}}
+  @keyframes glitch{0%{clip-path:none;transform:none}2%{clip-path:polygon(0 15%,100% 15%,100% 16%,0 16%);transform:translateX(-4px)}4%{clip-path:polygon(0 70%,100% 70%,100% 72%,0 72%);transform:translateX(4px)}6%{clip-path:none;transform:none}100%{clip-path:none;transform:none}}
   @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
   @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-  @keyframes pulse-border{
-    0%,100%{border-color:var(--border);box-shadow:0 0 6px var(--green-glow)}
-    50%{border-color:var(--green-dim);box-shadow:0 0 18px var(--green-glow)}
-  }
+  @keyframes pulse-border{0%,100%{border-color:var(--border);box-shadow:0 0 6px var(--green-glow)}50%{border-color:var(--green-dim);box-shadow:0 0 18px var(--green-glow)}}
   @keyframes scan-v{0%{top:-10%}100%{top:110%}}
+  @keyframes spin{to{transform:rotate(360deg)}}
 
-  .scan-line-v{
-    position:fixed;left:0;right:0;height:2px;
-    background:linear-gradient(to right,transparent,var(--green-dim),transparent);
-    opacity:0.12;animation:scan-v 6s linear infinite;pointer-events:none;z-index:9997;
-  }
+  /* Loading */
+  #loadingScreen{position:fixed;inset:0;background:var(--bg);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+  .loading-spinner{width:32px;height:32px;border:2px solid var(--green-dark);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;}
+  .loading-text{font-family:'VT323',monospace;font-size:24px;color:var(--green);text-shadow:0 0 12px var(--green);letter-spacing:4px;animation:blink 1s step-end infinite;}
 
-  /* SIDEBAR */
-  #sidebar{
-    width:220px;min-width:220px;background:var(--panel);
-    border-right:1px solid var(--border);
-    display:flex;flex-direction:column;position:relative;z-index:10;
-    animation:flicker 8s infinite;
-  }
+  .scan-line-v{position:fixed;left:0;right:0;height:2px;background:linear-gradient(to right,transparent,var(--green-dim),transparent);opacity:.12;animation:scan-v 6s linear infinite;pointer-events:none;z-index:9997;}
+  #sidebar{width:220px;min-width:220px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;position:relative;z-index:10;animation:flicker 8s infinite;}
   .sidebar-logo{padding:24px 16px 16px;border-bottom:1px solid var(--border);text-align:center;}
-  .logo-bracket{font-family:'VT323',monospace;font-size:32px;color:var(--green-dim);line-height:0.8;display:block;text-shadow:0 0 8px var(--green-dim);}
+  .logo-bracket{font-family:'VT323',monospace;font-size:32px;color:var(--green-dim);line-height:.8;display:block;text-shadow:0 0 8px var(--green-dim);}
   .logo-main{font-family:'VT323',monospace;font-size:22px;color:var(--green);text-shadow:0 0 10px var(--green);line-height:1.2;letter-spacing:1px;}
   .logo-sub{font-size:9px;color:var(--text-dim);margin-top:4px;letter-spacing:2px;}
   .admin-badge{display:none;font-size:8px;letter-spacing:2px;color:var(--green);border:1px solid var(--green-dim);padding:2px 6px;margin-top:4px;text-align:center;animation:blink 2s step-end infinite;}
   .admin-logged-in .admin-badge{display:block;}
-
   nav{flex:1;padding:16px 0;}
   .nav-label{font-size:9px;color:var(--text-dim);letter-spacing:3px;padding:8px 20px 4px;}
-  nav a{
-    display:flex;align-items:center;gap:10px;padding:10px 20px;
-    color:var(--text-dim);text-decoration:none;font-size:12px;letter-spacing:1px;
-    border-left:2px solid transparent;transition:all 0.15s;cursor:pointer;
-  }
-  nav a::before{content:'>';opacity:0;transition:opacity 0.1s;color:var(--green);}
+  nav a{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--text-dim);text-decoration:none;font-size:12px;letter-spacing:1px;border-left:2px solid transparent;transition:all .15s;cursor:pointer;}
+  nav a::before{content:'>';opacity:0;transition:opacity .1s;color:var(--green);}
   nav a:hover,nav a.active{color:var(--green);border-left-color:var(--green);background:var(--green-glow);text-shadow:0 0 8px var(--green);}
   nav a:hover::before,nav a.active::before{opacity:1;}
-
   .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:9px;color:var(--text-dim);line-height:1.8;}
-  .admin-btn{
-    display:block;margin-top:8px;padding:6px 10px;border:1px solid var(--text-dim);color:var(--text-dim);
-    font-size:9px;letter-spacing:1px;text-align:center;cursor:pointer;transition:all 0.15s;
-    background:none;font-family:'Share Tech Mono',monospace;width:100%;
-  }
+  .admin-btn{display:block;margin-top:8px;padding:6px 10px;border:1px solid var(--text-dim);color:var(--text-dim);font-size:9px;letter-spacing:1px;text-align:center;cursor:pointer;transition:all .15s;background:none;font-family:'Share Tech Mono',monospace;width:100%;}
   .admin-btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
-
-  /* MAIN */
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
-
-  .ticker-wrap{
-    background:var(--green);padding:4px 0;
-    overflow:hidden;border-bottom:1px solid var(--green-dim);flex-shrink:0;
-    cursor:default;
-  }
+  .ticker-wrap{background:var(--green);padding:4px 0;overflow:hidden;border-bottom:1px solid var(--green-dim);flex-shrink:0;cursor:default;}
   .admin-logged-in .ticker-wrap{cursor:pointer;}
   .ticker-inner{display:flex;white-space:nowrap;width:max-content;animation:marquee 35s linear infinite;}
   .ticker-item{font-size:11px;color:var(--bg);font-weight:bold;letter-spacing:1px;padding:0 32px;}
-
   #content{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--green-dim) var(--panel);}
   #content::-webkit-scrollbar{width:4px;}
   #content::-webkit-scrollbar-track{background:var(--panel);}
   #content::-webkit-scrollbar-thumb{background:var(--green-dim);}
-
   .page{display:none;}
   .page.active{display:block;}
-
-  /* HOME */
   .home-header{position:relative;padding:48px 48px 32px;border-bottom:1px solid var(--border);overflow:hidden;}
-  .home-header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 20% 50%,rgba(0,255,65,0.04) 0%,transparent 70%);}
-  .home-title{font-family:'VT323',monospace;font-size:64px;line-height:1;color:var(--green);text-shadow:0 0 20px rgba(0,255,65,0.5),2px 2px 0 var(--green-dark);animation:glitch 12s steps(1) infinite;}
+  .home-header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 20% 50%,rgba(0,255,65,.04) 0%,transparent 70%);}
+  .home-title{font-family:'VT323',monospace;font-size:64px;line-height:1;color:var(--green);text-shadow:0 0 20px rgba(0,255,65,.5),2px 2px 0 var(--green-dark);animation:glitch 12s steps(1) infinite;}
   .home-title-sub{font-size:10px;color:var(--text-dim);letter-spacing:4px;margin-top:8px;}
   .home-corner{position:absolute;top:16px;right:16px;font-size:9px;color:var(--text-dim);text-align:right;line-height:2;}
   .home-corner .coord{color:var(--green-dim);font-size:10px;}
   .home-body{padding:32px 48px;}
-
   .notice-block{border:1px solid var(--border);padding:20px 24px;position:relative;margin-bottom:24px;animation:pulse-border 4s ease-in-out infinite;}
   .notice-block::before{content:'// NOTICE';position:absolute;top:-8px;left:16px;background:var(--bg);padding:0 8px;font-size:9px;color:var(--green-dim);letter-spacing:2px;}
   .notice-text{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:1.9;white-space:pre-wrap;}
   .cursor{display:inline-block;width:8px;height:14px;background:var(--green);margin-left:2px;vertical-align:middle;animation:blink 1s step-end infinite;}
-
   .home-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px;}
-  .info-card{border:1px solid var(--border);padding:16px;transition:all 0.2s;position:relative;}
+  .info-card{border:1px solid var(--border);padding:16px;transition:all .2s;position:relative;}
   .info-card:hover{border-color:var(--green-dim);box-shadow:0 0 12px var(--green-glow);}
   .info-card-label{font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:8px;}
-  .info-card-value{font-family:'VT323',monospace;font-size:28px;color:var(--green);text-shadow:0 0 10px rgba(0,255,65,0.4);}
+  .info-card-value{font-family:'VT323',monospace;font-size:28px;color:var(--green);text-shadow:0 0 10px rgba(0,255,65,.4);}
   .info-card-desc{font-size:10px;color:var(--text-dim);margin-top:4px;}
-
-  /* GUILD PAGE */
   .guild-page{padding:40px 48px;}
-  .section-header{font-family:'VT323',monospace;font-size:36px;color:var(--green);text-shadow:0 0 12px rgba(0,255,65,0.4);margin-bottom:4px;}
+  .members-page{padding:40px 48px;}
+  .board-page{padding:40px 48px;}
+  .section-header{font-family:'VT323',monospace;font-size:36px;color:var(--green);text-shadow:0 0 12px rgba(0,255,65,.4);margin-bottom:4px;}
   .section-sub{font-size:9px;color:var(--text-dim);letter-spacing:3px;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid var(--border);}
   .guild-block{margin-bottom:32px;position:relative;}
   .guild-block-title{font-size:10px;color:var(--green);letter-spacing:3px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
   .guild-block-title::after{content:'';flex:1;height:1px;background:var(--border);}
   .guild-text{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:2;padding-left:12px;border-left:2px solid var(--green-dark);white-space:pre-wrap;}
-  .highlight{color:var(--green);font-weight:bold;}
-  .tag{display:inline-block;border:1px solid var(--green-dim);padding:1px 6px;font-size:10px;color:var(--green-dim);margin:0 2px;}
-
-  /* MEMBERS PAGE */
-  .members-page{padding:40px 48px;}
   .member-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px;}
-  .member-card{border:1px solid var(--border);padding:16px;transition:all 0.2s;position:relative;}
+  .member-card{border:1px solid var(--border);padding:16px;transition:all .2s;position:relative;}
   .member-card:hover{border-color:var(--green);box-shadow:0 0 16px var(--green-glow);}
   .member-card-top{display:flex;gap:12px;align-items:flex-start;}
   .member-photo-wrap{width:80px;height:100px;border:1px solid var(--border);overflow:hidden;background:var(--green-dark);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
   .member-photo-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
   .member-photo-placeholder{font-size:9px;color:var(--text-dim);letter-spacing:1px;text-align:center;line-height:1.6;}
-  .photo-upload-btn{
-    position:absolute;inset:0;background:rgba(0,0,0,0.75);
-    display:none;align-items:center;justify-content:center;
-    font-size:9px;color:var(--green);cursor:pointer;letter-spacing:1px;
-    border:none;width:100%;font-family:'Share Tech Mono',monospace;
-  }
+  .photo-upload-btn{position:absolute;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;font-size:9px;color:var(--green);cursor:pointer;letter-spacing:1px;border:none;width:100%;font-family:'Share Tech Mono',monospace;}
   .admin-logged-in .member-photo-wrap:hover .photo-upload-btn{display:flex;}
   .member-card-info{flex:1;}
   .member-card-id{font-size:9px;color:var(--text-dim);letter-spacing:2px;margin-bottom:4px;}
-  .member-card-name{font-family:'VT323',monospace;font-size:28px;color:var(--green);text-shadow:0 0 8px rgba(0,255,65,0.3);line-height:1.1;}
+  .member-card-name{font-family:'VT323',monospace;font-size:28px;color:var(--green);text-shadow:0 0 8px rgba(0,255,65,.3);line-height:1.1;}
   .member-card-type{font-size:10px;color:var(--text-dim);margin-top:2px;}
   .member-card-desc{font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--text-dim);margin-top:10px;line-height:1.7;border-top:1px solid var(--border);padding-top:10px;}
   .member-card-actions{display:flex;gap:6px;margin-top:10px;}
-
-  /* BOARD PAGE */
-  .board-page{padding:40px 48px;}
   .board-list{margin-top:8px;}
-  .board-item{display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid var(--border);transition:all 0.15s;}
+  .board-item{display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid var(--border);transition:all .15s;}
   .board-item:hover{padding-left:8px;}
   .board-item:hover .board-item-title{color:var(--green);}
   .board-item-num{font-size:10px;color:var(--text-dim);min-width:32px;}
-  .board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color 0.15s;cursor:pointer;}
+  .board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color .15s;cursor:pointer;}
   .board-item-author{font-size:10px;color:var(--text-dim);min-width:60px;text-align:right;}
   .board-item-date{font-size:9px;color:var(--text-dim);min-width:80px;text-align:right;}
-
-  /* STATUS BAR */
   .status-bar{padding:4px 16px;border-top:1px solid var(--border);font-size:9px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;background:var(--panel);flex-shrink:0;letter-spacing:1px;}
   .status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;animation:blink 2s ease-in-out infinite;}
-
-  /* EDIT OVERLAY */
   .editable-block{position:relative;}
-  .edit-overlay-btn{
-    display:none;position:absolute;top:0;right:0;
-    font-family:'Share Tech Mono',monospace;font-size:9px;padding:3px 8px;
-    border:1px solid var(--text-dim);color:var(--text-dim);
-    background:var(--bg);cursor:pointer;letter-spacing:1px;transition:all 0.15s;z-index:5;
-  }
+  .edit-overlay-btn{display:none;position:absolute;top:0;right:0;font-family:'Share Tech Mono',monospace;font-size:9px;padding:3px 8px;border:1px solid var(--text-dim);color:var(--text-dim);background:var(--bg);cursor:pointer;letter-spacing:1px;transition:all .15s;z-index:5;}
   .edit-overlay-btn:hover{border-color:var(--green);color:var(--green);}
   .admin-logged-in .edit-overlay-btn{display:block;}
-  .editable-inline-input{
-    background:var(--bg);border:1px solid var(--green-dim);color:var(--green);
-    font-family:'Share Tech Mono',monospace;font-size:inherit;padding:2px 6px;
-    outline:none;width:100%;
-  }
-  .editable-textarea{
-    width:100%;background:var(--bg);border:1px solid var(--green-dim);color:var(--green);
-    font-family:'Noto Sans KR',sans-serif;font-size:13px;padding:10px;
-    outline:none;resize:vertical;min-height:100px;line-height:1.9;display:none;
-  }
-
-  /* BUTTONS */
-  .btn{font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 10px;border:1px solid var(--text-dim);color:var(--text-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all 0.15s;}
+  .editable-inline-input{background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:inherit;padding:2px 6px;outline:none;width:100%;}
+  .editable-textarea{width:100%;background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:13px;padding:10px;outline:none;resize:vertical;min-height:100px;line-height:1.9;display:none;}
+  .btn{font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 10px;border:1px solid var(--text-dim);color:var(--text-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;}
   .btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 6px var(--green-glow);}
   .btn-g{border-color:var(--green);color:var(--green);}
   .btn-g:hover{background:var(--green-glow);}
   .btn-r{border-color:#ff414144;color:#ff4141;}
   .btn-r:hover{background:#ff41411a;border-color:#ff4141;}
-  .write-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 14px;border:1px solid var(--green-dim);color:var(--green-dim);background:none;cursor:pointer;letter-spacing:1px;margin-bottom:16px;transition:all 0.15s;}
+  .write-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 14px;border:1px solid var(--green-dim);color:var(--green-dim);background:none;cursor:pointer;letter-spacing:1px;margin-bottom:16px;transition:all .15s;}
   .write-btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
-
   .admin-only{display:none!important;}
   .admin-logged-in .admin-only{display:inline-block!important;}
-
-  /* MODAL */
-  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;}
+  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;align-items:center;justify-content:center;}
   .modal-bg.open{display:flex;}
-  .modal{background:var(--panel);border:1px solid var(--green-dim);padding:28px 32px;width:520px;max-width:92vw;position:relative;box-shadow:0 0 40px rgba(0,255,65,0.1);max-height:85vh;overflow-y:auto;}
-  .modal-title{font-family:'VT323',monospace;font-size:28px;color:var(--green);margin-bottom:20px;text-shadow:0 0 10px rgba(0,255,65,0.4);}
-  .modal-close{position:absolute;top:12px;right:16px;background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;font-family:'Share Tech Mono',monospace;transition:color 0.15s;}
+  .modal{background:var(--panel);border:1px solid var(--green-dim);padding:28px 32px;width:520px;max-width:92vw;position:relative;box-shadow:0 0 40px rgba(0,255,65,.1);max-height:85vh;overflow-y:auto;}
+  .modal-title{font-family:'VT323',monospace;font-size:28px;color:var(--green);margin-bottom:20px;text-shadow:0 0 10px rgba(0,255,65,.4);}
+  .modal-close{position:absolute;top:12px;right:16px;background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;font-family:'Share Tech Mono',monospace;transition:color .15s;}
   .modal-close:hover{color:var(--green);}
   .form-group{margin-bottom:16px;}
   .form-label{font-size:9px;letter-spacing:2px;color:var(--text-dim);display:block;margin-bottom:6px;}
-  .form-input,.form-textarea{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:12px;padding:8px 12px;outline:none;transition:border-color 0.15s;}
+  .form-input,.form-textarea{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:12px;padding:8px 12px;outline:none;transition:border-color .15s;}
   .form-input:focus,.form-textarea:focus{border-color:var(--green);box-shadow:0 0 8px var(--green-glow);}
   .form-textarea{height:120px;resize:vertical;font-family:'Noto Sans KR',sans-serif;font-size:12px;}
-  .form-submit{font-family:'Share Tech Mono',monospace;font-size:11px;padding:8px 20px;border:1px solid var(--green);color:var(--green);background:none;cursor:pointer;letter-spacing:2px;transition:all 0.15s;width:100%;margin-top:8px;}
+  .form-submit{font-family:'Share Tech Mono',monospace;font-size:11px;padding:8px 20px;border:1px solid var(--green);color:var(--green);background:none;cursor:pointer;letter-spacing:2px;transition:all .15s;width:100%;margin-top:8px;}
   .form-submit:hover{background:var(--green-glow);box-shadow:0 0 12px var(--green-glow);}
   .error-text{font-size:10px;color:#ff4141;margin-top:8px;display:none;}
   .post-view-title{font-family:'VT323',monospace;font-size:28px;color:var(--green);margin-bottom:4px;}
@@ -248,6 +643,12 @@
 </style>
 </head>
 <body>
+
+<!-- Loading Screen -->
+<div id="loadingScreen">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">CONNECTING...</div>
+</div>
 
 <div class="scan-line-v"></div>
 
@@ -267,7 +668,7 @@
     <a onclick="goto('board')"><span>BOARD</span></a>
   </nav>
   <div class="sidebar-footer">
-    <div>SYS VER 0.9.4b</div>
+    <div>SYS VER 0.9.5b</div>
     <div>STATUS: <span style="color:var(--green)">ONLINE</span></div>
     <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ACCESS ]</button>
     <button class="admin-btn" id="logoutBtn" onclick="adminLogout()" style="display:none;border-color:#ff4141;color:#ff4141;">[ LOGOUT ]</button>
@@ -299,11 +700,7 @@
 
       <div class="home-body">
         <div class="notice-block editable-block">
-          <div class="notice-text" id="mainNotice">에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,
-이곳은 에린의 규격에서 벗어난 존재들의 은신처입니다.
-
-인간이라는 종을 연구하고, 생존합니다.
-오늘도 우리는 '바른 인간'을 연습 중입니다.<span class="cursor"></span></div>
+          <div class="notice-text" id="mainNotice">로딩 중...<span class="cursor"></span></div>
           <textarea class="editable-textarea" id="mainNoticeEdit"></textarea>
           <div style="margin-top:6px;display:none" id="mainNoticeActions">
             <button class="btn btn-g" onclick="saveField('mainNotice','mainNoticeEdit','mainNoticeActions')">[ SAVE ]</button>
@@ -315,17 +712,17 @@
         <div class="home-grid">
           <div class="info-card">
             <div class="info-card-label">// GUILD STATUS</div>
-            <div class="info-card-value" id="memberCountDisplay">1명</div>
+            <div class="info-card-value" id="memberCountDisplay">─명</div>
             <div class="info-card-desc">등록된 길드원</div>
           </div>
-          <div class="info-card editable-block">
+          <div class="info-card">
             <div class="info-card-label">// CURRENT OBJ</div>
             <div class="info-card-value editable-block" style="font-size:18px;padding-top:6px">
-              <span id="currentObj">인간 관찰</span>
+              <span id="currentObj">─</span>
               <button class="edit-overlay-btn" onclick="editInline('currentObj','input')">EDIT</button>
             </div>
             <div class="info-card-desc editable-block">
-              <span id="currentObjDesc">연구 · 생존 · 위장</span>
+              <span id="currentObjDesc">─</span>
               <button class="edit-overlay-btn" onclick="editInline('currentObjDesc','input')">EDIT</button>
             </div>
           </div>
@@ -334,14 +731,14 @@
             <div class="info-card-value">IAN</div>
             <div class="info-card-desc">우주의 찌꺼기 · 사제</div>
           </div>
-          <div class="info-card editable-block">
+          <div class="info-card">
             <div class="info-card-label">// ALERT LEVEL</div>
             <div class="info-card-value editable-block" style="color:var(--green-dim)">
-              <span id="alertLevel">LOW</span>
+              <span id="alertLevel">─</span>
               <button class="edit-overlay-btn" onclick="editInline('alertLevel','input')">EDIT</button>
             </div>
             <div class="info-card-desc editable-block">
-              <span id="alertDesc">정체 노출 위험도</span>
+              <span id="alertDesc">─</span>
               <button class="edit-overlay-btn" onclick="editInline('alertDesc','input')">EDIT</button>
             </div>
           </div>
@@ -357,11 +754,7 @@
 
         <div class="guild-block editable-block">
           <div class="guild-block-title">// OVERVIEW</div>
-          <div class="guild-text" id="guildOverview">에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,
-이곳은 에린의 규격에서 벗어난 인외(人外)들의 은신처입니다.
-
-인간들은 자신들과 다른 규격 외의 존재를 향해 본능적인 공포와 적대감을 드러냅니다.
-이에 생존의 위협을 느낀 인외들이 정체를 숨기고 사회에 녹아들기 위해 설립되었습니다.</div>
+          <div class="guild-text" id="guildOverview">로딩 중...</div>
           <textarea class="editable-textarea" id="guildOverviewEdit"></textarea>
           <div style="margin-top:6px;display:none" id="guildOverviewActions">
             <button class="btn btn-g" onclick="saveField('guildOverview','guildOverviewEdit','guildOverviewActions')">[ SAVE ]</button>
@@ -372,13 +765,7 @@
 
         <div class="guild-block editable-block">
           <div class="guild-block-title">// OBJECTIVES</div>
-          <div class="guild-text" id="guildObjectives">[연구] 인간의 도덕, 규범, 사소한 습관까지 데이터화하여 학습합니다.
-
-[교정] 정체가 들통나 공동체 전체가 위험해지는 것을 방지하기 위해 서로의 '인간 연기'를 교정해 줍니다.
-
-[분석] 정기적으로 모여 인간다운 행동 양식에 대한 비논리적이고 복잡한 감정 체계를 분석합니다.
-
-※ 다만 각자의 본성이 워낙 강렬한 탓에, 결론은 늘 기묘한 방향으로 흐릅니다.</div>
+          <div class="guild-text" id="guildObjectives">로딩 중...</div>
           <textarea class="editable-textarea" id="guildObjectivesEdit"></textarea>
           <div style="margin-top:6px;display:none" id="guildObjectivesActions">
             <button class="btn btn-g" onclick="saveField('guildObjectives','guildObjectivesEdit','guildObjectivesActions')">[ SAVE ]</button>
@@ -388,7 +775,7 @@
         </div>
 
         <div id="extraSectionsContainer"></div>
-        <button class="btn btn-g admin-only" style="margin-top:4px" onclick="openModal('addSectionModal')">[ + ADD SECTION ]</button>
+        <button class="btn btn-g admin-only" style="margin-top:4px" onclick="openAddSection()">[ + ADD SECTION ]</button>
       </div>
     </div>
 
@@ -418,28 +805,26 @@
   </div>
 
   <div class="status-bar">
-    <div><span class="status-dot"></span>SYSTEM ONLINE · ERN NETWORK</div>
+    <div><span class="status-dot"></span>SYSTEM ONLINE · FIREBASE SYNC</div>
     <div id="statusTime">──:──:──</div>
   </div>
 </div>
 
 <!-- MODALS -->
 
-<!-- Admin Login -->
 <div class="modal-bg" id="adminLoginModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('adminLoginModal')">[ X ]</button>
     <div class="modal-title">// ADMIN ACCESS</div>
     <div class="form-group">
       <label class="form-label">PASSWORD</label>
-      <input class="form-input" type="password" id="adminPwInput" placeholder="──────────" onkeydown="if(event.key==='Enter')tryLogin()">
+      <input class="form-input" type="password" id="adminPwInput" placeholder="──────────">
     </div>
     <div class="error-text" id="adminError">// ERROR: INVALID CREDENTIALS</div>
     <button class="form-submit" onclick="tryLogin()">[ AUTHENTICATE ]</button>
   </div>
 </div>
 
-<!-- Add Member -->
 <div class="modal-bg" id="addMemberModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('addMemberModal')">[ X ]</button>
@@ -454,30 +839,17 @@
           <input type="file" id="newPhotoFile" accept="image/*" onchange="previewPhoto(this,'newPhotoImg','newPhotoPlaceholder')">
         </div>
         <div style="flex:1">
-          <div class="form-group">
-            <label class="form-label">NAME</label>
-            <input class="form-input" type="text" id="mName" placeholder="캐릭터명">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">TYPE / 종족</label>
-            <input class="form-input" type="text" id="mType" placeholder="미지의 존재 · 악마 · etc">
-          </div>
+          <div class="form-group"><label class="form-label">NAME</label><input class="form-input" type="text" id="mName" placeholder="캐릭터명"></div>
+          <div class="form-group" style="margin-bottom:0"><label class="form-label">TYPE / 종족</label><input class="form-input" type="text" id="mType" placeholder="미지의 존재 · 악마 · etc"></div>
         </div>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">ROLE</label>
-      <input class="form-input" type="text" id="mRole" value="MEMBER" placeholder="MEMBER">
-    </div>
-    <div class="form-group">
-      <label class="form-label">DESCRIPTION</label>
-      <textarea class="form-textarea" id="mDesc" placeholder="간략한 소개"></textarea>
-    </div>
+    <div class="form-group"><label class="form-label">ROLE</label><input class="form-input" type="text" id="mRole" value="MEMBER"></div>
+    <div class="form-group"><label class="form-label">DESCRIPTION</label><textarea class="form-textarea" id="mDesc" placeholder="간략한 소개"></textarea></div>
     <button class="form-submit" onclick="saveMember()">[ REGISTER ]</button>
   </div>
 </div>
 
-<!-- Edit Member -->
 <div class="modal-bg" id="editMemberModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('editMemberModal')">[ X ]</button>
@@ -492,51 +864,28 @@
           <input type="file" id="editPhotoFile" accept="image/*" onchange="previewPhoto(this,'editPhotoImg',null)">
         </div>
         <div style="flex:1">
-          <div class="form-group">
-            <label class="form-label">NAME</label>
-            <input class="form-input" type="text" id="editMName">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">TYPE / 종족</label>
-            <input class="form-input" type="text" id="editMType">
-          </div>
+          <div class="form-group"><label class="form-label">NAME</label><input class="form-input" type="text" id="editMName"></div>
+          <div class="form-group" style="margin-bottom:0"><label class="form-label">TYPE / 종족</label><input class="form-input" type="text" id="editMType"></div>
         </div>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">ROLE</label>
-      <input class="form-input" type="text" id="editMRole">
-    </div>
-    <div class="form-group">
-      <label class="form-label">DESCRIPTION</label>
-      <textarea class="form-textarea" id="editMDesc"></textarea>
-    </div>
+    <div class="form-group"><label class="form-label">ROLE</label><input class="form-input" type="text" id="editMRole"></div>
+    <div class="form-group"><label class="form-label">DESCRIPTION</label><textarea class="form-textarea" id="editMDesc"></textarea></div>
     <button class="form-submit" onclick="saveEditMember()">[ SAVE CHANGES ]</button>
   </div>
 </div>
 
-<!-- Write Post -->
 <div class="modal-bg" id="writePostModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('writePostModal')">[ X ]</button>
     <div class="modal-title">// WRITE POST</div>
-    <div class="form-group">
-      <label class="form-label">TITLE</label>
-      <input class="form-input" type="text" id="postTitle" placeholder="제목">
-    </div>
-    <div class="form-group">
-      <label class="form-label">AUTHOR</label>
-      <input class="form-input" type="text" id="postAuthor" placeholder="작성자">
-    </div>
-    <div class="form-group">
-      <label class="form-label">CONTENT</label>
-      <textarea class="form-textarea" id="postContent" placeholder="내용을 입력하세요" style="height:160px"></textarea>
-    </div>
+    <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="postTitle" placeholder="제목"></div>
+    <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="postAuthor" placeholder="작성자"></div>
+    <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="postContent" placeholder="내용을 입력하세요" style="height:160px"></textarea></div>
     <button class="form-submit" onclick="savePost()">[ SUBMIT ]</button>
   </div>
 </div>
 
-<!-- View Post -->
 <div class="modal-bg" id="viewPostModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('viewPostModal')">[ X ]</button>
@@ -547,456 +896,15 @@
   </div>
 </div>
 
-<!-- Add Section -->
 <div class="modal-bg" id="addSectionModal">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal('addSectionModal');resetSectionModal()">[ X ]</button>
-    <div class="modal-title" id="addSectionTitle">// ADD SECTION</div>
-    <div class="form-group">
-      <label class="form-label">SECTION TITLE</label>
-      <input class="form-input" type="text" id="newSecTitle" placeholder="CUSTOM TITLE">
-    </div>
-    <div class="form-group">
-      <label class="form-label">CONTENT</label>
-      <textarea class="form-textarea" id="newSecContent" placeholder="내용 입력" style="height:150px"></textarea>
-    </div>
+    <button class="modal-close" onclick="closeModal('addSectionModal')">[ X ]</button>
+    <div class="modal-title" id="addSectionModalTitle">// ADD SECTION</div>
+    <div class="form-group"><label class="form-label">SECTION TITLE</label><input class="form-input" type="text" id="newSecTitle" placeholder="CUSTOM TITLE"></div>
+    <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="newSecContent" placeholder="내용 입력" style="height:150px"></textarea></div>
     <button class="form-submit" id="addSectionSubmit" onclick="saveSection()">[ ADD ]</button>
   </div>
 </div>
 
-<script>
-// =====================
-// STORAGE
-// =====================
-const S = {
-  get(k){ try{return JSON.parse(localStorage.getItem('bhrh_'+k))}catch{return null}},
-  set(k,v){ try{localStorage.setItem('bhrh_'+k,JSON.stringify(v))}catch{}}
-};
-
-// =====================
-// STATE
-// =====================
-const ADMIN_PW = 'IAN2403';
-let isAdmin = false;
-
-const DEF_TEXTS = {
-  mainNotice: "에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,\n이곳은 에린의 규격에서 벗어난 존재들의 은신처입니다.\n\n인간이라는 종을 연구하고, 생존합니다.\n오늘도 우리는 '바른 인간'을 연습 중입니다.",
-  homeTitleSub: 'GUILD · NON-HUMAN ADAPTATION DIVISION',
-  currentObj: '인간 관찰',
-  currentObjDesc: '연구 · 생존 · 위장',
-  alertLevel: 'LOW',
-  alertDesc: '정체 노출 위험도',
-  boardSub: '// 게시판 · 연구 기록 · 토론 아카이브',
-  guildOverview: "에린의 평범한 마을 귀퉁이에 자리 잡은 건실한 길드로 보이지만,\n이곳은 에린의 규격에서 벗어난 인외(人外)들의 은신처입니다.\n\n인간들은 자신들과 다른 규격 외의 존재를 향해 본능적인 공포와 적대감을 드러냅니다.\n이에 생존의 위협을 느낀 인외들이 정체를 숨기고 사회에 녹아들기 위해 설립되었습니다.",
-  guildObjectives: "[연구] 인간의 도덕, 규범, 사소한 습관까지 데이터화하여 학습합니다.\n\n[교정] 정체가 들통나 공동체 전체가 위험해지는 것을 방지하기 위해 서로의 '인간 연기'를 교정해 줍니다.\n\n[분석] 정기적으로 모여 인간다운 행동 양식에 대한 비논리적이고 복잡한 감정 체계를 분석합니다.\n\n※ 다만 각자의 본성이 워낙 강렬한 탓에, 결론은 늘 기묘한 방향으로 흐릅니다.",
-  ticker: '// 바른인간생활본부 길드원 모집 중 · 인외 환영 · 정체 보장 · 인간 연기 교정 서비스 제공 · 매주 정기 토론 진행 · 에린 네트워크 연결됨 · 오늘도 바른 인간을 연습합니다 //'
-};
-
-const DEF_MEMBERS = [
-  {id:'001',role:'GUILD MASTER',name:'IAN',type:'미지의 존재 · 사제 (위장)',desc:'우주의 찌꺼기. 늪에서 이안의 육체와 기억을 삼킨 존재. 현재 교단 사제로 위장 중.',photo:''}
-];
-
-const DEF_POSTS = [
-  {id:1,title:'[연구] 인간의 "미소"에 대한 분석 보고서',author:'IAN',date:'2024.03.01',body:'인간의 미소는 크게 두 가지로 분류된다.\n\n1. 두체닌 미소: 진정한 기쁨의 표현\n2. 사회적 미소: 위장을 위한 도구\n\n흥미롭게도 우리에게는 후자가 더 자연스럽다.',deleted:false},
-  {id:2,title:'[공지] 이번 주 정기 모임 일정',author:'IAN',date:'2024.03.05',body:'이번 주 정기 모임은 예정대로 진행합니다.\n\n주제: 인간의 "사랑"이라는 감정 체계 분석\n장소: 본부 2층 회의실\n\n모두 인간 복장 착용 필수.',deleted:false}
-];
-
-// Load saved data
-let texts   = S.get('texts')   || JSON.parse(JSON.stringify(DEF_TEXTS));
-let members = S.get('members') || JSON.parse(JSON.stringify(DEF_MEMBERS));
-let posts   = S.get('posts')   || JSON.parse(JSON.stringify(DEF_POSTS));
-let sections= S.get('sections')|| [];
-
-// Ensure all keys exist
-Object.keys(DEF_TEXTS).forEach(k=>{ if(texts[k]===undefined) texts[k]=DEF_TEXTS[k]; });
-
-// =====================
-// APPLY TEXTS
-// =====================
-function applyTexts(){
-  Object.keys(texts).forEach(k=>{
-    if(k==='ticker') return;
-    const el=document.getElementById(k);
-    if(el) el.textContent=texts[k];
-  });
-  buildTicker();
-}
-
-function saveTexts(){ S.set('texts',texts); }
-
-// =====================
-// TICKER
-// =====================
-function buildTicker(){
-  const inner=document.getElementById('tickerInner');
-  const msg=texts.ticker||DEF_TEXTS.ticker;
-  inner.innerHTML='';
-  // 2 copies for seamless loop
-  for(let i=0;i<2;i++){
-    const s=document.createElement('span');
-    s.className='ticker-item';
-    s.textContent=msg;
-    inner.appendChild(s);
-  }
-}
-
-function editTicker(){
-  if(!isAdmin) return;
-  const v=prompt('공지 텍스트 수정 (더블클릭으로 열림):',texts.ticker);
-  if(v!==null){ texts.ticker=v; saveTexts(); buildTicker(); }
-}
-
-// =====================
-// CLOCK
-// =====================
-function tick(){
-  const t=new Date();
-  const s=[t.getHours(),t.getMinutes(),t.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
-  document.getElementById('clockDisplay').textContent=s;
-  document.getElementById('statusTime').textContent=s;
-}
-setInterval(tick,1000); tick();
-
-// =====================
-// NAVIGATION
-// =====================
-function goto(page){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
-  document.getElementById('page-'+page).classList.add('active');
-  const navLinks=document.querySelectorAll('nav a');
-  ['home','guild','members','board'].forEach((p,i)=>{ if(p===page) navLinks[i].classList.add('active'); });
-  if(page==='members') renderMembers();
-  if(page==='board')   renderBoard();
-  if(page==='guild')   renderSections();
-}
-
-// =====================
-// ADMIN
-// =====================
-function openAdminLogin(){
-  document.getElementById('adminPwInput').value='';
-  document.getElementById('adminError').style.display='none';
-  openModal('adminLoginModal');
-}
-
-function tryLogin(){
-  if(document.getElementById('adminPwInput').value===ADMIN_PW){
-    isAdmin=true;
-    document.body.classList.add('admin-logged-in');
-    document.getElementById('logoutBtn').style.display='block';
-    document.getElementById('adminAccessBtn').style.display='none';
-    closeModal('adminLoginModal');
-    renderMembers(); renderBoard(); renderSections();
-  } else {
-    document.getElementById('adminError').style.display='block';
-  }
-}
-
-function adminLogout(){
-  isAdmin=false;
-  document.body.classList.remove('admin-logged-in');
-  document.getElementById('logoutBtn').style.display='none';
-  document.getElementById('adminAccessBtn').style.display='block';
-  renderMembers(); renderBoard(); renderSections();
-}
-
-// =====================
-// INLINE EDIT (single-line span)
-// =====================
-function editInline(id, type){
-  if(!isAdmin) return;
-  const el=document.getElementById(id);
-  if(!el) return;
-  const orig=el.textContent.trim();
-  const input=document.createElement('input');
-  input.className='editable-inline-input';
-  input.value=orig;
-  el.textContent='';
-  el.appendChild(input);
-  input.focus(); input.select();
-  const done=()=>{
-    const v=input.value.trim()||orig;
-    el.textContent=v;
-    texts[id]=v;
-    saveTexts();
-  };
-  input.addEventListener('blur',done);
-  input.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();input.blur();} if(e.key==='Escape'){el.textContent=orig;input.remove();} });
-}
-
-// =====================
-// TEXTAREA FIELD EDIT
-// =====================
-function openFieldEdit(displayId, editId, actionsId){
-  if(!isAdmin) return;
-  const display=document.getElementById(displayId);
-  const edit=document.getElementById(editId);
-  const actions=document.getElementById(actionsId);
-  edit.value=display.textContent;
-  display.style.display='none';
-  edit.style.display='block';
-  actions.style.display='block';
-  edit.focus();
-}
-
-function saveField(displayId, editId, actionsId){
-  const display=document.getElementById(displayId);
-  const edit=document.getElementById(editId);
-  const actions=document.getElementById(actionsId);
-  const v=edit.value;
-  display.textContent=v;
-  display.style.display='block';
-  edit.style.display='none';
-  actions.style.display='none';
-  texts[displayId]=v;
-  saveTexts();
-}
-
-function cancelEdit(displayId, editId, actionsId){
-  const display=document.getElementById(displayId);
-  const edit=document.getElementById(editId);
-  const actions=document.getElementById(actionsId);
-  display.style.display='block';
-  edit.style.display='none';
-  actions.style.display='none';
-}
-
-// =====================
-// MEMBERS
-// =====================
-function saveMembers(){ S.set('members',members); document.getElementById('memberCountDisplay').textContent=members.length+'명'; }
-
-function renderMembers(){
-  const grid=document.getElementById('memberGrid');
-  grid.innerHTML='';
-  members.forEach((m,i)=>{
-    const card=document.createElement('div');
-    card.className='member-card';
-    card.innerHTML=`
-      <div class="member-card-top">
-        <div class="member-photo-wrap">
-          ${m.photo?`<img src="${m.photo}" alt="${m.name}">`:`<div class="member-photo-placeholder">NO<br>PHOTO</div>`}
-          <button class="photo-upload-btn" onclick="triggerPhoto(${i})">[ PHOTO ]</button>
-          <input type="file" id="pf_${i}" accept="image/*" onchange="uploadPhoto(this,${i})">
-        </div>
-        <div class="member-card-info">
-          <div class="member-card-id">ID #${m.id} · ${m.role}</div>
-          <div class="member-card-name">${m.name}</div>
-          <div class="member-card-type">${m.type}</div>
-        </div>
-      </div>
-      <div class="member-card-desc">${m.desc}</div>
-      <div class="member-card-actions" style="${isAdmin?'':'display:none'}">
-        <button class="btn btn-g" onclick="openEditMember(${i})" style="font-size:9px">[ EDIT ]</button>
-        ${i>0?`<button class="btn btn-r" onclick="delMember(${i})" style="font-size:9px">[ DEL ]</button>`:''}
-      </div>
-    `;
-    grid.appendChild(card);
-  });
-  document.getElementById('memberCountDisplay').textContent=members.length+'명';
-}
-
-function triggerPhoto(i){ document.getElementById('pf_'+i).click(); }
-
-function uploadPhoto(input,i){
-  const f=input.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=e=>{ members[i].photo=e.target.result; saveMembers(); renderMembers(); };
-  r.readAsDataURL(f);
-}
-
-function previewPhoto(input, imgId, placeholderId){
-  const f=input.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=e=>{
-    const img=document.getElementById(imgId);
-    img.src=e.target.result; img.style.display='block';
-    if(placeholderId) document.getElementById(placeholderId).style.display='none';
-  };
-  r.readAsDataURL(f);
-}
-
-function openAddMember(){
-  ['mName','mType','mDesc'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('mRole').value='MEMBER';
-  document.getElementById('newPhotoImg').style.display='none';
-  document.getElementById('newPhotoImg').src='';
-  document.getElementById('newPhotoPlaceholder').style.display='flex';
-  openModal('addMemberModal');
-}
-
-function saveMember(){
-  const name=document.getElementById('mName').value.trim();
-  if(!name) return;
-  const type=document.getElementById('mType').value.trim();
-  const role=document.getElementById('mRole').value.trim()||'MEMBER';
-  const desc=document.getElementById('mDesc').value.trim();
-  const imgEl=document.getElementById('newPhotoImg');
-  const photo=imgEl.style.display!=='none'&&imgEl.src?imgEl.src:'';
-  const id=String(members.length+1).padStart(3,'0');
-  members.push({id,role,name,type,desc,photo});
-  saveMembers(); closeModal('addMemberModal'); renderMembers();
-}
-
-function openEditMember(i){
-  const m=members[i];
-  document.getElementById('editMIdx').value=i;
-  document.getElementById('editMName').value=m.name;
-  document.getElementById('editMType').value=m.type;
-  document.getElementById('editMRole').value=m.role;
-  document.getElementById('editMDesc').value=m.desc;
-  const img=document.getElementById('editPhotoImg');
-  img.src=m.photo||''; img.style.background=m.photo?'transparent':'var(--green-dark)';
-  openModal('editMemberModal');
-}
-
-function saveEditMember(){
-  const i=parseInt(document.getElementById('editMIdx').value);
-  members[i].name =document.getElementById('editMName').value.trim()||members[i].name;
-  members[i].type =document.getElementById('editMType').value.trim();
-  members[i].role =document.getElementById('editMRole').value.trim()||members[i].role;
-  members[i].desc =document.getElementById('editMDesc').value.trim();
-  const img=document.getElementById('editPhotoImg');
-  if(img.src&&!img.src.endsWith('#')) members[i].photo=img.src;
-  saveMembers(); closeModal('editMemberModal'); renderMembers();
-}
-
-function delMember(i){
-  if(!confirm('삭제하시겠습니까?')) return;
-  members.splice(i,1);
-  members.forEach((m,idx)=>{m.id=String(idx+1).padStart(3,'0');});
-  saveMembers(); renderMembers();
-}
-
-// =====================
-// BOARD
-// =====================
-function savePosts(){ S.set('posts',posts); }
-
-function renderBoard(){
-  const list=document.getElementById('boardList');
-  list.innerHTML='';
-  const active=posts.filter(p=>!p.deleted);
-  if(!active.length){
-    list.innerHTML='<div style="color:var(--text-dim);font-size:12px;padding:20px 0">// 게시물이 없습니다</div>';
-    return;
-  }
-  active.forEach((p,i)=>{
-    const item=document.createElement('div');
-    item.className='board-item';
-    item.innerHTML=`
-      <span class="board-item-num">${String(i+1).padStart(3,'0')}</span>
-      <span class="board-item-title" onclick="viewPost(${p.id})">${p.title}</span>
-      <span class="board-item-author">${p.author}</span>
-      <span class="board-item-date">${p.date}</span>
-      ${isAdmin?`<button class="btn btn-r" onclick="delPost(${p.id})" style="font-size:9px;margin-left:8px;flex-shrink:0">[ DEL ]</button>`:''}
-    `;
-    list.appendChild(item);
-  });
-}
-
-function savePost(){
-  const title=document.getElementById('postTitle').value.trim();
-  const body=document.getElementById('postContent').value.trim();
-  if(!title||!body) return;
-  const author=document.getElementById('postAuthor').value.trim()||'익명';
-  const now=new Date();
-  const date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
-  posts.unshift({id:Date.now(),title,author,date,body,deleted:false});
-  savePosts(); closeModal('writePostModal');
-  ['postTitle','postAuthor','postContent'].forEach(id=>document.getElementById(id).value='');
-  renderBoard();
-}
-
-function viewPost(id){
-  const p=posts.find(x=>x.id===id); if(!p) return;
-  document.getElementById('vPostTitle').textContent=p.title;
-  document.getElementById('vPostMeta').textContent=`AUTHOR: ${p.author}  ·  DATE: ${p.date}`;
-  document.getElementById('vPostBody').textContent=p.body;
-  document.getElementById('vPostAdmin').innerHTML=isAdmin?`<button class="btn btn-r" onclick="delPost(${p.id});closeModal('viewPostModal')">[ DELETE POST ]</button>`:'';
-  openModal('viewPostModal');
-}
-
-function delPost(id){
-  if(!confirm('삭제하시겠습니까?')) return;
-  const p=posts.find(x=>x.id===id);
-  if(p) p.deleted=true;
-  savePosts(); renderBoard();
-}
-
-// =====================
-// EXTRA GUILD SECTIONS
-// =====================
-function saveSections(){ S.set('sections',sections); }
-
-let editingSecIdx=-1;
-
-function renderSections(){
-  const c=document.getElementById('extraSectionsContainer');
-  c.innerHTML='';
-  sections.forEach((sec,i)=>{
-    const div=document.createElement('div');
-    div.className='guild-block editable-block';
-    div.innerHTML=`
-      <div class="guild-block-title">// ${sec.title}
-        ${isAdmin?`<button class="btn btn-r" onclick="delSection(${i})" style="font-size:9px;margin-left:auto">[ DEL ]</button>
-        <button class="btn btn-g" onclick="openEditSection(${i})" style="font-size:9px;margin-left:4px">[ EDIT ]</button>`:''}
-      </div>
-      <div class="guild-text">${sec.content}</div>
-    `;
-    c.appendChild(div);
-  });
-}
-
-function resetSectionModal(){
-  editingSecIdx=-1;
-  document.getElementById('addSectionTitle').textContent='// ADD SECTION';
-  document.getElementById('addSectionSubmit').textContent='[ ADD ]';
-  document.getElementById('newSecTitle').value='';
-  document.getElementById('newSecContent').value='';
-}
-
-function saveSection(){
-  const t=document.getElementById('newSecTitle').value.trim();
-  const c=document.getElementById('newSecContent').value.trim();
-  if(!t) return;
-  if(editingSecIdx>=0){ sections[editingSecIdx]={title:t,content:c}; }
-  else { sections.push({title:t,content:c}); }
-  saveSections(); closeModal('addSectionModal'); resetSectionModal(); renderSections();
-}
-
-function openEditSection(i){
-  editingSecIdx=i;
-  document.getElementById('addSectionTitle').textContent='// EDIT SECTION';
-  document.getElementById('addSectionSubmit').textContent='[ SAVE ]';
-  document.getElementById('newSecTitle').value=sections[i].title;
-  document.getElementById('newSecContent').value=sections[i].content;
-  openModal('addSectionModal');
-}
-
-function delSection(i){
-  if(!confirm('삭제하시겠습니까?')) return;
-  sections.splice(i,1); saveSections(); renderSections();
-}
-
-// =====================
-// MODAL
-// =====================
-function openModal(id){ document.getElementById(id).classList.add('open'); }
-function closeModal(id){ document.getElementById(id).classList.remove('open'); }
-
-document.querySelectorAll('.modal-bg').forEach(bg=>{
-  bg.addEventListener('click',e=>{ if(e.target===bg){ bg.classList.remove('open'); if(bg.id==='addSectionModal') resetSectionModal(); } });
-});
-
-// =====================
-// INIT
-// =====================
-applyTexts();
-renderMembers();
-renderBoard();
-renderSections();
-</script>
 </body>
 </html>
