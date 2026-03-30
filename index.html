@@ -78,6 +78,15 @@ function startListeners() {
   });
 }
 
+let currentFilter = '전체';
+window.filterBoard = (cat) => {
+  currentFilter = cat;
+  document.querySelectorAll('.board-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent === cat);
+  });
+  renderBoard();
+};
+
 function applyTexts() {
   ['mainNotice','homeTitleSub','currentObj','currentObjDesc',
    'alertLevel','alertDesc','boardSub','guildOverview','guildObjectives'].forEach(id => {
@@ -278,16 +287,22 @@ window.delMember = async key => {
 function renderBoard() {
   const list=document.getElementById('boardList'); if(!list) return;
   list.innerHTML='';
-  if(!posts.length){
+  
+  const filteredPosts = currentFilter === '전체' 
+    ? posts 
+    : posts.filter(p => p.category === currentFilter);
+
+  if(!filteredPosts.length){
     list.innerHTML='<div style="color:var(--text-dim);font-size:12px;padding:20px 0">// 게시물이 없습니다</div>';
     return;
   }
-  posts.forEach((p,i)=>{
+  filteredPosts.forEach((p,i)=>{
     const item=document.createElement('div');
     item.className='board-item';
+    const catTag = p.category ? `<span class="board-item-cat">[${p.category}]</span>` : '';
     item.innerHTML=`
       <span class="board-item-num">${String(i+1).padStart(3,'0')}</span>
-      <span class="board-item-title" onclick="viewPost('${p._key}')">${p.title}</span>
+      <span class="board-item-title" onclick="viewPost('${p._key}')">${catTag} ${p.title}</span>
       <span class="board-item-meta">${p.author} · ${p.date}</span>
       ${isAdmin?`<button class="btn btn-r" onclick="delPost('${p._key}')">[ DEL ]</button>`:''}`;
     list.appendChild(item);
@@ -299,6 +314,7 @@ window.savePost = async () => {
   const body=document.getElementById('postContent').value.trim();
   if(!title||!body) return;
   const author=document.getElementById('postAuthor').value.trim()||'익명';
+  const category=document.getElementById('postCategory').value;
   const now=new Date();
   const date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
   
@@ -309,9 +325,10 @@ window.savePost = async () => {
     if(img.src && img.src !== '') galleryImgs.push(img.src);
   });
   
-  await dbPush('posts',{title,author,date,body,deleted:false,ts:Date.now(),gallery:galleryImgs});
+  await dbPush('posts',{title,author,date,body,category,deleted:false,ts:Date.now(),gallery:galleryImgs});
   closeModal('writePostModal');
   ['postTitle','postAuthor','postContent'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('postCategory').value = '아무말';
   document.getElementById('galleryPreviewContainer').innerHTML='';
 };
 
@@ -777,8 +794,18 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .board-item:hover{padding-left:8px;}
 .board-item:hover .board-item-title{color:var(--green);}
 .board-item-num{font-size:10px;color:var(--text-dim);min-width:28px;padding-top:2px;flex-shrink:0;}
+.board-item-cat{color:var(--green-dim);font-size:11px;margin-right:6px;font-weight:bold;}
 .board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color .15s;cursor:pointer;word-break:keep-all;min-width:0;}
 .board-item-meta{font-size:9px;color:var(--text-dim);white-space:nowrap;}
+
+.board-filters{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap;}
+.board-filter-btn{
+  background:none;border:1px solid var(--border);color:var(--text-dim);
+  font-size:10px;padding:4px 10px;cursor:pointer;font-family:'Share Tech Mono',monospace;
+  transition:all .2s;
+}
+.board-filter-btn:hover, .board-filter-btn.active{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
+.board-filter-btn.active{background:var(--green-glow);}
 
 /* ── GALLERY ── */
 .gallery-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-top:14px;margin-bottom:8px;}
@@ -1090,7 +1117,16 @@ input[type="file"]{display:none;}
               <span id="boardSub">// 게시판 · 연구 기록 · 토론 아카이브</span>
               <button class="edit-overlay-btn" onclick="editInline('boardSub')">EDIT</button>
             </div>
-            <button class="write-btn" onclick="openModal('writePostModal')" style="margin-top:12px">[ + WRITE ]</button>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;">
+              <div class="board-filters">
+                <button class="board-filter-btn active" onclick="filterBoard('전체')">전체</button>
+                <button class="board-filter-btn" onclick="filterBoard('공지')">공지</button>
+                <button class="board-filter-btn" onclick="filterBoard('사진')">사진</button>
+                <button class="board-filter-btn" onclick="filterBoard('관계구함')">관계구함</button>
+                <button class="board-filter-btn" onclick="filterBoard('아무말')">아무말</button>
+              </div>
+              <button class="write-btn" onclick="openModal('writePostModal')" style="margin:0">[ + WRITE ]</button>
+            </div>
             <div class="board-list" id="boardList"></div>
           </div>
         </div>
@@ -1175,6 +1211,15 @@ input[type="file"]{display:none;}
   <div class="modal">
     <button class="modal-close" onclick="closeModal('writePostModal')">[ X ]</button>
     <div class="modal-title">// WRITE POST</div>
+    <div class="form-group">
+      <label class="form-label">CATEGORY</label>
+      <select class="form-input" id="postCategory" style="background:var(--panel);color:var(--green);border:1px solid var(--border);">
+        <option value="공지">공지</option>
+        <option value="사진">사진</option>
+        <option value="관계구함">관계구함</option>
+        <option value="아무말" selected>아무말</option>
+      </select>
+    </div>
     <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="postTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="postAuthor" placeholder="작성자"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="postContent" placeholder="내용" style="height:140px"></textarea></div>
