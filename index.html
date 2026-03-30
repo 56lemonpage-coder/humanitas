@@ -132,9 +132,7 @@ window.goto = (page) => {
   document.getElementById('page-'+page).classList.add('active');
   const pages=['home','guild','members','board'];
   document.querySelectorAll('nav a')[pages.indexOf(page)]?.classList.add('active');
-  // mobile: close sidebar after nav
   if (window.innerWidth <= 700) closeSidebar();
-  // scroll content back to top
   document.getElementById('content').scrollTop = 0;
 };
 
@@ -316,6 +314,7 @@ function renderBoard() {
     list.appendChild(item);
   });
 }
+
 window.savePost = async () => {
   const title=document.getElementById('postTitle').value.trim();
   const body=document.getElementById('postContent').value.trim();
@@ -323,19 +322,128 @@ window.savePost = async () => {
   const author=document.getElementById('postAuthor').value.trim()||'익명';
   const now=new Date();
   const date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
-  await dbPush('posts',{title,author,date,body,deleted:false,ts:Date.now()});
+  
+  // 갤러리 이미지 수집
+  const galleryImgs = [];
+  const galleryInputs = document.querySelectorAll('#galleryPreviewContainer img');
+  galleryInputs.forEach(img => {
+    if(img.src && img.src !== '') galleryImgs.push(img.src);
+  });
+  
+  await dbPush('posts',{title,author,date,body,deleted:false,ts:Date.now(),gallery:galleryImgs});
   closeModal('writePostModal');
   ['postTitle','postAuthor','postContent'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('galleryPreviewContainer').innerHTML='';
 };
+
+window.addGalleryImage = () => {
+  document.getElementById('galleryFileInput').click();
+};
+
+window.handleGalleryFile = (input) => {
+  const f=input.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=e=>{
+    const container = document.getElementById('galleryPreviewContainer');
+    const img = document.createElement('img');
+    img.src = e.target.result;
+    img.className = 'gallery-preview-img';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'gallery-preview-item';
+    wrapper.innerHTML = `<button class="gallery-remove-btn" onclick="this.parentElement.remove()">✕</button>`;
+    wrapper.appendChild(img);
+    container.appendChild(wrapper);
+  };
+  r.readAsDataURL(f);
+};
+
 window.viewPost = key => {
   const p=posts.find(x=>x._key===key); if(!p) return;
   document.getElementById('vPostTitle').textContent=p.title;
   document.getElementById('vPostMeta').textContent=`AUTHOR: ${p.author}  ·  DATE: ${p.date}`;
   document.getElementById('vPostBody').textContent=p.body;
+  
+  // 갤러리 렌더링
+  const galleryContainer = document.getElementById('vPostGallery');
+  if(p.gallery && p.gallery.length > 0) {
+    galleryContainer.innerHTML = '<div class="gallery-label">// GALLERY</div>';
+    const galleryGrid = document.createElement('div');
+    galleryGrid.className = 'post-gallery-grid';
+    p.gallery.forEach(imgSrc => {
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.className = 'post-gallery-img';
+      img.onclick = () => openImageModal(imgSrc);
+      galleryGrid.appendChild(img);
+    });
+    galleryContainer.appendChild(galleryGrid);
+  } else {
+    galleryContainer.innerHTML = '';
+  }
+  
+  // 댓글 렌더링
+  renderComments(key);
+  document.getElementById('vPostKey').value = key;
+  
   document.getElementById('vPostAdmin').innerHTML=isAdmin
     ?`<button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE POST ]</button>`:'';
   openModal('viewPostModal');
 };
+
+window.openImageModal = (imgSrc) => {
+  document.getElementById('modalImageDisplay').src = imgSrc;
+  openModal('imageViewModal');
+};
+
+// ── comments ─────────────────────────────────────────────────
+async function renderComments(postKey) {
+  const commentsContainer = document.getElementById('vPostComments');
+  commentsContainer.innerHTML = '';
+  
+  const snap = await dbGet(`posts/${postKey}/comments`);
+  const comments = snap.exists() ? Object.entries(snap.val()).map(([k,v])=>({_key:k,...v})) : [];
+  
+  comments.sort((a,b) => a.ts - b.ts);
+  
+  comments.forEach(c => {
+    const commentDiv = document.createElement('div');
+    commentDiv.className = 'comment-item';
+    commentDiv.innerHTML = `
+      <div class="comment-header">
+        <span class="comment-author">${c.author}</span>
+        <span class="comment-date">${c.date}</span>
+        ${isAdmin?`<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ DEL ]</button>`:''}
+      </div>
+      <div class="comment-body">${c.body}</div>
+    `;
+    commentsContainer.appendChild(commentDiv);
+  });
+}
+
+window.saveComment = async () => {
+  const postKey = document.getElementById('vPostKey').value;
+  const author = document.getElementById('commentAuthor').value.trim() || '익명';
+  const body = document.getElementById('commentBody').value.trim();
+  
+  if(!body) return;
+  
+  const now = new Date();
+  const date = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  
+  await dbPush(`posts/${postKey}/comments`, {author, body, date, ts: Date.now()});
+  
+  document.getElementById('commentAuthor').value = '';
+  document.getElementById('commentBody').value = '';
+  
+  renderComments(postKey);
+};
+
+window.delComment = async (postKey, commentKey) => {
+  if(!confirm('댓글을 삭제하시겠습니까?')) return;
+  await dbDel(`posts/${postKey}/comments/${commentKey}`);
+  renderComments(postKey);
+};
+
 window.delPost = async key => {
   if(!confirm('삭제하시겠습니까?')) return;
   await dbUpd('posts/'+key,{deleted:true});
@@ -498,7 +606,6 @@ body::after {
   overflow:hidden;border-bottom:1px solid var(--green-dim);
   flex-shrink:0;cursor:default;z-index:20;position:relative;
 }
-.admin-logged-in .ticker-wrap{cursor:pointer;}
 .ticker-inner{display:flex;white-space:nowrap;width:max-content;animation:marquee 35s linear infinite;}
 .ticker-item{font-size:11px;color:var(--bg);font-weight:bold;letter-spacing:1px;padding:0 32px;}
 
@@ -671,6 +778,36 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color .15s;cursor:pointer;word-break:keep-all;min-width:0;}
 .board-item-meta{font-size:9px;color:var(--text-dim);white-space:nowrap;}
 
+/* ── GALLERY ── */
+.gallery-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-top:14px;margin-bottom:8px;}
+.post-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px;}
+.post-gallery-img{width:100%;height:120px;object-fit:cover;border:1px solid var(--border);cursor:pointer;transition:all .15s;}
+.post-gallery-img:hover{border-color:var(--green);box-shadow:0 0 8px var(--green-glow);}
+
+.gallery-preview-container{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-top:8px;}
+.gallery-preview-item{position:relative;border:1px dashed var(--border);overflow:hidden;}
+.gallery-preview-img{width:100%;height:80px;object-fit:cover;display:block;}
+.gallery-remove-btn{position:absolute;top:2px;right:2px;background:rgba(255,65,65,0.8);border:none;color:white;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;}
+.gallery-remove-btn:hover{background:rgba(255,65,65,1);}
+
+/* ── COMMENTS ── */
+.comments-section{margin-top:20px;border-top:1px solid var(--border);padding-top:14px;}
+.comments-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-bottom:12px;}
+.comment-item{border-left:2px solid var(--green-dark);padding:10px 12px;margin-bottom:10px;background:rgba(0,255,65,0.02);}
+.comment-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+.comment-author{font-size:10px;color:var(--green);font-weight:bold;}
+.comment-date{font-size:9px;color:var(--text-dim);}
+.comment-body{font-family:'Noto Sans KR',sans-serif;font-size:12px;color:var(--text);line-height:1.6;}
+
+.comment-form{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;}
+.comment-form-group{margin-bottom:8px;}
+.comment-form-label{font-size:9px;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:4px;}
+.comment-form-input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:12px;padding:6px 10px;outline:none;transition:border-color .15s;}
+.comment-form-input:focus{border-color:var(--green);box-shadow:0 0 6px var(--green-glow);}
+.comment-form-textarea{width:100%;height:80px;resize:vertical;}
+.comment-submit{font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 14px;border:1px solid var(--green-dim);color:var(--green-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;margin-top:6px;}
+.comment-submit:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 6px var(--green-glow);}
+
 /* ── EDIT OVERLAY ── */
 .editable-block{position:relative;}
 .edit-overlay-btn{
@@ -682,7 +819,7 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .edit-overlay-btn:hover{border-color:var(--green);color:var(--green);}
 .admin-logged-in .edit-overlay-btn{display:block;}
 .editable-inline-input{background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:inherit;padding:2px 6px;outline:none;width:100%;}
-.editable-textarea{width:100%;background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:13px;padding:10px;outline:none;resize:vertical;min-height:100px;line-height:1.9;display:none;}
+.editable-textarea{width:100%;background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:12px;padding:8px 12px;outline:none;resize:vertical;height:140px;}
 
 /* ── BUTTONS ── */
 .btn{font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 10px;border:1px solid var(--text-dim);color:var(--text-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;}
@@ -701,7 +838,7 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .modal-bg.open{display:flex;}
 .modal{
   background:var(--panel);border:1px solid var(--green-dim);
-  padding:24px 24px;width:100%;max-width:500px;
+  padding:24px 24px;width:100%;max-width:600px;
   position:relative;box-shadow:0 0 40px rgba(0,255,65,.1);
   max-height:90vh;overflow-y:auto;
 }
@@ -721,6 +858,8 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .post-view-body{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:2;white-space:pre-wrap;}
 .member-photo-prev-img{width:72px;height:90px;border:1px solid var(--border);object-fit:cover;display:block;background:var(--green-dark);}
 input[type="file"]{display:none;}
+
+#modalImageDisplay{max-width:100%;max-height:80vh;border:1px solid var(--green-dim);}
 
 /* ══════════════════════════════════
    MOBILE RESPONSIVE  ≤ 700px
@@ -772,7 +911,7 @@ input[type="file"]{display:none;}
   .board-item-meta { font-size:9px; }
 
   /* modal full-width */
-  .modal { padding:20px 18px; max-height:85vh; }
+  .modal { padding:20px 18px; max-height:85vh; max-width:95vw; }
   .modal-title { font-size:22px; }
 
   /* notice block */
@@ -783,6 +922,9 @@ input[type="file"]{display:none;}
 
   /* ticker */
   .ticker-item { font-size:10px; padding:0 20px; }
+  
+  /* gallery grid mobile */
+  .post-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));}
 }
 
 /* ══════════════════════════════════
@@ -1053,6 +1195,14 @@ input[type="file"]{display:none;}
     <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="postTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="postAuthor" placeholder="작성자"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="postContent" placeholder="내용" style="height:140px"></textarea></div>
+    
+    <div class="form-group">
+      <label class="form-label">GALLERY (선택사항)</label>
+      <button class="btn btn-g" onclick="addGalleryImage()" style="width:100%;margin-bottom:8px">[ + ADD IMAGE ]</button>
+      <input type="file" id="galleryFileInput" accept="image/*" onchange="handleGalleryFile(this)">
+      <div id="galleryPreviewContainer" class="gallery-preview-container"></div>
+    </div>
+    
     <button class="form-submit" onclick="savePost()">[ SUBMIT ]</button>
   </div>
 </div>
@@ -1060,10 +1210,38 @@ input[type="file"]{display:none;}
 <div class="modal-bg" id="viewPostModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('viewPostModal')">[ X ]</button>
+    <input type="hidden" id="vPostKey">
     <div class="post-view-title" id="vPostTitle"></div>
     <div class="post-view-meta" id="vPostMeta"></div>
     <div class="post-view-body" id="vPostBody"></div>
+    
+    <div id="vPostGallery"></div>
+    
+    <div class="comments-section">
+      <div class="comments-label">// COMMENTS</div>
+      <div id="vPostComments"></div>
+      
+      <div class="comment-form">
+        <div class="comment-form-group">
+          <label class="comment-form-label">AUTHOR</label>
+          <input class="comment-form-input" type="text" id="commentAuthor" placeholder="작성자 (선택사항)">
+        </div>
+        <div class="comment-form-group">
+          <label class="comment-form-label">COMMENT</label>
+          <textarea class="comment-form-input comment-form-textarea" id="commentBody" placeholder="댓글을 입력하세요"></textarea>
+        </div>
+        <button class="comment-submit" onclick="saveComment()">[ SUBMIT COMMENT ]</button>
+      </div>
+    </div>
+    
     <div id="vPostAdmin" style="margin-top:14px;text-align:right"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="imageViewModal">
+  <div class="modal" style="max-width:90vw;display:flex;align-items:center;justify-content:center;padding:0">
+    <button class="modal-close" onclick="closeModal('imageViewModal')">[ X ]</button>
+    <img id="modalImageDisplay" src="" style="max-width:100%;max-height:85vh;object-fit:contain;">
   </div>
 </div>
 
