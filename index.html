@@ -68,7 +68,12 @@ function startListeners() {
   });
   dbListen('posts', val => {
     posts = val
-      ? Object.entries(val).map(([k,v])=>({_key:k,...v})).filter(p=>!p.deleted).sort((a,b)=>b.ts-a.ts)
+      ? Object.entries(val).map(([k,v])=>({_key:k,...v}}).filter(p=>!p.deleted).sort((a,b)=>{
+          // 상단 고정된 게시물을 먼저 표시
+          if (a.pinned && !b.pinned) return -1;
+          if (!a.pinned && b.pinned) return 1;
+          return b.ts - a.ts;
+        })
       : [];
     renderBoard();
   });
@@ -266,16 +271,14 @@ window.openEditMember = key => {
 };
 window.saveEditMember = async () => {
   const key=document.getElementById('editMIdx').value;
-  const m=members.find(x=>x._key===key); if(!m) return;
-  const updates={
-    name:document.getElementById('editMName').value.trim()||m.name,
-    type:document.getElementById('editMType').value.trim(),
-    role:document.getElementById('editMRole').value.trim()||m.role,
-    desc:document.getElementById('editMDesc').value.trim()
-  };
+  const name=document.getElementById('editMName').value.trim();
+  if(!name) return;
+  const type=document.getElementById('editMType').value.trim();
+  const role=document.getElementById('editMRole').value.trim();
+  const desc=document.getElementById('editMDesc').value.trim();
   const img=document.getElementById('editPhotoImg');
-  if(img.src&&!img.src.endsWith('#')&&img.src!==window.location.href) updates.photo=img.src;
-  await dbUpd('members/'+key, updates);
+  const photo=img.src||'';
+  await dbUpd('members/'+key,{name,type,role,desc,photo});
   closeModal('editMemberModal');
 };
 window.delMember = async key => {
@@ -292,6 +295,12 @@ function renderBoard() {
     ? posts 
     : posts.filter(p => p.category === currentFilter);
 
+  // 사진 카테고리인 경우 갤러리 뷰로 표시
+  if (currentFilter === '사진') {
+    renderPhotoGallery(filteredPosts);
+    return;
+  }
+
   if(!filteredPosts.length){
     list.innerHTML='<div style="color:var(--text-dim);font-size:12px;padding:20px 0">// 게시물이 없습니다</div>';
     return;
@@ -300,13 +309,49 @@ function renderBoard() {
     const item=document.createElement('div');
     item.className='board-item';
     const catTag = p.category ? `<span class="board-item-cat">[${p.category}]</span>` : '';
+    const pinnedTag = p.pinned ? `<span class="board-item-pinned">[ 📌 고정 ]</span>` : '';
     item.innerHTML=`
       <span class="board-item-num">${String(i+1).padStart(3,'0')}</span>
-      <span class="board-item-title" onclick="viewPost('${p._key}')">${catTag} ${p.title}</span>
+      <span class="board-item-title" onclick="viewPost('${p._key}')">${pinnedTag}${catTag} ${p.title}</span>
       <span class="board-item-meta">${p.author} · ${p.date}</span>
       ${isAdmin?`<button class="btn btn-r" onclick="delPost('${p._key}')">[ DEL ]</button>`:''}`;
     list.appendChild(item);
   });
+}
+
+// 사진 카테고리용 갤러리 뷰 렌더링
+function renderPhotoGallery(filteredPosts) {
+  const list=document.getElementById('boardList');
+  list.innerHTML='';
+  
+  if(!filteredPosts.length){
+    list.innerHTML='<div style="color:var(--text-dim);font-size:12px;padding:20px 0">// 게시물이 없습니다</div>';
+    return;
+  }
+
+  const galleryContainer = document.createElement('div');
+  galleryContainer.className = 'photo-gallery-container';
+  
+  filteredPosts.forEach(p => {
+    if (p.gallery && p.gallery.length > 0) {
+      p.gallery.forEach((imgSrc, idx) => {
+        const item = document.createElement('div');
+        item.className = 'photo-gallery-item';
+        item.innerHTML = `
+          <img src="${imgSrc}" alt="photo" class="photo-gallery-img" onclick="viewPost('${p._key}')">
+          <div class="photo-gallery-overlay">
+            <div class="photo-gallery-info">
+              <div class="photo-gallery-title">${p.title}</div>
+              <div class="photo-gallery-author">${p.author}</div>
+            </div>
+          </div>
+        `;
+        galleryContainer.appendChild(item);
+      });
+    }
+  });
+  
+  list.appendChild(galleryContainer);
 }
 
 window.savePost = async () => {
@@ -325,7 +370,7 @@ window.savePost = async () => {
     if(img.src && img.src !== '') galleryImgs.push(img.src);
   });
   
-  await dbPush('posts',{title,author,date,body,category,deleted:false,ts:Date.now(),gallery:galleryImgs});
+  await dbPush('posts',{title,author,date,body,category,deleted:false,ts:Date.now(),gallery:galleryImgs,pinned:false});
   closeModal('writePostModal');
   ['postTitle','postAuthor','postContent'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('postCategory').value = '아무말';
@@ -381,14 +426,104 @@ window.viewPost = key => {
   renderComments(key);
   document.getElementById('vPostKey').value = key;
   
+  // 관리자 버튼 (수정, 삭제, 고정)
   document.getElementById('vPostAdmin').innerHTML=isAdmin
-    ?`<button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE POST ]</button>`:'';
+    ?`<button class="btn btn-g" onclick="openEditPost('${key}')" style="margin-right:6px">[ EDIT ]</button>
+      <button class="btn btn-g" onclick="togglePinPost('${key}')" style="margin-right:6px">${p.pinned ? '[ 고정해제 ]' : '[ 고정 ]'}</button>
+      <button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE ]</button>`:'';
   openModal('viewPostModal');
 };
 
 window.openImageModal = (imgSrc) => {
   document.getElementById('modalImageDisplay').src = imgSrc;
   openModal('imageViewModal');
+};
+
+// ── post edit ────────────────────────────────────────────────
+window.openEditPost = (key) => {
+  const p = posts.find(x => x._key === key);
+  if (!p) return;
+  
+  document.getElementById('editPostKey').value = key;
+  document.getElementById('editPostTitle').value = p.title;
+  document.getElementById('editPostAuthor').value = p.author;
+  document.getElementById('editPostContent').value = p.body;
+  document.getElementById('editPostCategory').value = p.category;
+  
+  // 기존 갤러리 이미지 표시
+  const container = document.getElementById('editGalleryPreviewContainer');
+  container.innerHTML = '';
+  if (p.gallery && p.gallery.length > 0) {
+    p.gallery.forEach(imgSrc => {
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.className = 'gallery-preview-img';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'gallery-preview-item';
+      wrapper.innerHTML = `<button class="gallery-remove-btn" onclick="this.parentElement.remove()">✕</button>`;
+      wrapper.appendChild(img);
+      container.appendChild(wrapper);
+    });
+  }
+  
+  closeModal('viewPostModal');
+  openModal('editPostModal');
+};
+
+window.saveEditPost = async () => {
+  const key = document.getElementById('editPostKey').value;
+  const title = document.getElementById('editPostTitle').value.trim();
+  const body = document.getElementById('editPostContent').value.trim();
+  if (!title || !body) return;
+  
+  const author = document.getElementById('editPostAuthor').value.trim() || '익명';
+  const category = document.getElementById('editPostCategory').value;
+  
+  // 갤러리 이미지 수집
+  const galleryImgs = [];
+  const galleryInputs = document.querySelectorAll('#editGalleryPreviewContainer img');
+  galleryInputs.forEach(img => {
+    if(img.src && img.src !== '') galleryImgs.push(img.src);
+  });
+  
+  await dbUpd('posts/' + key, { title, author, body, category, gallery: galleryImgs });
+  closeModal('editPostModal');
+  renderBoard();
+};
+
+window.addEditGalleryImage = () => {
+  document.getElementById('editGalleryFileInput').click();
+};
+
+window.handleEditGalleryFile = (input) => {
+  const f = input.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = e => {
+    const container = document.getElementById('editGalleryPreviewContainer');
+    const img = document.createElement('img');
+    img.src = e.target.result;
+    img.className = 'gallery-preview-img';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'gallery-preview-item';
+    wrapper.innerHTML = `<button class="gallery-remove-btn" onclick="this.parentElement.remove()">✕</button>`;
+    wrapper.appendChild(img);
+    container.appendChild(wrapper);
+  };
+  r.readAsDataURL(f);
+};
+
+// ── post pin ─────────────────────────────────────────────────
+window.togglePinPost = async (key) => {
+  const p = posts.find(x => x._key === key);
+  if (!p) return;
+  await dbUpd('posts/' + key, { pinned: !p.pinned });
+  renderBoard();
+  viewPost(key);
+};
+
+window.delPost = async key => {
+  if(!confirm('삭제하시겠습니까?')) return;
+  await dbUpd('posts/'+key,{deleted:true});
 };
 
 // ── comments ─────────────────────────────────────────────────
@@ -409,18 +544,21 @@ async function renderComments(postKey) {
     commentDiv.className = 'comment-item';
     const isMyComment = myCommentIds[c._key] === true;
     
-    let deleteBtn = '';
+    let actionBtns = '';
     if (isMyComment) {
-      deleteBtn = `<button class="btn btn-r" style="font-size:8px;padding:2px 6px;background:#ff41411a" onclick="delComment('${postKey}','${c._key}')">[ 나의 댓글 삭제 ]</button>`;
+      actionBtns = `
+        <button class="btn btn-g" style="font-size:8px;padding:2px 6px;background:rgba(0,255,65,0.1)" onclick="openEditComment('${postKey}','${c._key}')">[ 수정 ]</button>
+        <button class="btn btn-r" style="font-size:8px;padding:2px 6px;background:#ff41411a" onclick="delComment('${postKey}','${c._key}')">[ 삭제 ]</button>
+      `;
     } else if (isAdmin) {
-      deleteBtn = `<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ DEL ]</button>`;
+      actionBtns = `<button class="btn btn-r" style="font-size:8px;padding:2px 6px" onclick="delComment('${postKey}','${c._key}')">[ DEL ]</button>`;
     }
     
     commentDiv.innerHTML = `
       <div class="comment-header">
         <span class="comment-author">${c.author}${isMyComment ? ' (나)' : ''}</span>
         <span class="comment-date">${c.date}</span>
-        ${deleteBtn}
+        <div style="margin-left:auto;display:flex;gap:4px">${actionBtns}</div>
       </div>
       <div class="comment-body">${c.body}</div>
     `;
@@ -451,6 +589,37 @@ window.saveComment = async () => {
   renderComments(postKey);
 };
 
+// ── comment edit ─────────────────────────────────────────────
+window.openEditComment = async (postKey, commentKey) => {
+  const snap = await dbGet(`posts/${postKey}/comments/${commentKey}`);
+  if (!snap.exists()) return;
+  
+  const comment = snap.val();
+  document.getElementById('editCommentPostKey').value = postKey;
+  document.getElementById('editCommentKey').value = commentKey;
+  document.getElementById('editCommentAuthor').value = comment.author;
+  document.getElementById('editCommentBody').value = comment.body;
+  
+  openModal('editCommentModal');
+};
+
+window.saveEditComment = async () => {
+  const postKey = document.getElementById('editCommentPostKey').value;
+  const commentKey = document.getElementById('editCommentKey').value;
+  const author = document.getElementById('editCommentAuthor').value.trim() || '익명';
+  const body = document.getElementById('editCommentBody').value.trim();
+  
+  if (!body) return;
+  
+  const now = new Date();
+  const date = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  
+  await dbUpd(`posts/${postKey}/comments/${commentKey}`, { author, body, date });
+  
+  closeModal('editCommentModal');
+  renderComments(postKey);
+};
+
 window.delComment = async (postKey, commentKey) => {
   if(!confirm('댓글을 삭제하시겠습니까?')) return;
   await dbDel(`posts/${postKey}/comments/${commentKey}`);
@@ -461,11 +630,6 @@ window.delComment = async (postKey, commentKey) => {
   localStorage.setItem('myCommentIds', JSON.stringify(myCommentIds));
   
   renderComments(postKey);
-};
-
-window.delPost = async key => {
-  if(!confirm('삭제하시겠습니까?')) return;
-  await dbUpd('posts/'+key,{deleted:true});
 };
 
 // ── sections ─────────────────────────────────────────────────
@@ -795,6 +959,7 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .board-item:hover .board-item-title{color:var(--green);}
 .board-item-num{font-size:10px;color:var(--text-dim);min-width:28px;padding-top:2px;flex-shrink:0;}
 .board-item-cat{color:var(--green-dim);font-size:11px;margin-right:6px;font-weight:bold;}
+.board-item-pinned{color:var(--green);font-size:10px;margin-right:6px;font-weight:bold;}
 .board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color .15s;cursor:pointer;word-break:keep-all;min-width:0;}
 .board-item-meta{font-size:9px;color:var(--text-dim);white-space:nowrap;}
 
@@ -806,6 +971,61 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 }
 .board-filter-btn:hover, .board-filter-btn.active{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
 .board-filter-btn.active{background:var(--green-glow);}
+
+/* ── PHOTO GALLERY ── */
+.photo-gallery-container{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:12px;
+  margin-top:12px;
+}
+.photo-gallery-item{
+  position:relative;
+  border:1px solid var(--border);
+  overflow:hidden;
+  aspect-ratio:1;
+  cursor:pointer;
+  transition:all .2s;
+}
+.photo-gallery-item:hover{
+  border-color:var(--green);
+  box-shadow:0 0 12px var(--green-glow);
+}
+.photo-gallery-img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.photo-gallery-overlay{
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,0.7);
+  display:flex;
+  align-items:flex-end;
+  padding:12px;
+  opacity:0;
+  transition:opacity .2s;
+}
+.photo-gallery-item:hover .photo-gallery-overlay{
+  opacity:1;
+}
+.photo-gallery-info{
+  width:100%;
+}
+.photo-gallery-title{
+  font-size:12px;
+  color:var(--green);
+  font-weight:bold;
+  margin-bottom:4px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.photo-gallery-author{
+  font-size:10px;
+  color:var(--text-dim);
+}
 
 /* ── GALLERY ── */
 .gallery-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-top:14px;margin-bottom:8px;}
@@ -898,126 +1118,64 @@ input[type="file"]{display:none;}
 
   html, body { overflow: hidden; }
 
-  /* topbar shows on mobile */
-  #topbar { display:flex; }
-  #hamburger { display:block; }
+  #sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); }
+  #sidebar.open { transform: translateX(0); }
 
-  /* sidebar slides in from left */
-  #sidebar {
-    position:fixed;
-    top:0; left:0; bottom:0;
-    transform: translateX(-100%);
-    box-shadow: 4px 0 24px rgba(0,0,0,.8);
-    overflow-y:auto;
-  }
-  #sidebar.open {
-    transform: translateX(0);
-  }
+  #topbar { display: flex; }
+  #hamburger { display: block; }
 
-  /* hide desktop corner clock */
-  .home-corner { display:none; }
-
-  /* tighten home header */
-  .home-header { padding:24px 20px 20px; }
-  .home-title { font-size:40px; }
-  .home-title-sub { font-size:9px; letter-spacing:2px; }
-  .home-body { padding:20px 20px; }
-
-  /* single column grid */
-  .home-grid { grid-template-columns:1fr; gap:10px; }
-
-  /* guild / members / board */
-  .guild-page,.members-page,.board-page { padding:24px 20px; }
-  .section-header { font-size:28px; }
-
-  /* member grid single col */
-  .member-grid { grid-template-columns:1fr; }
-
-  /* board item stack */
-  .board-item { flex-direction:column; gap:4px; }
-  .board-item-num { display:none; }
-  .board-item-meta { font-size:9px; }
-
-  /* modal full-width */
-  .modal { padding:20px 18px; max-height:85vh; max-width:95vw; }
-  .modal-title { font-size:22px; }
-
-  /* notice block */
-  .notice-block { padding:14px 16px; }
-
-  /* status bar */
-  .status-bar { font-size:8px; }
-
-  /* ticker */
-  .ticker-item { font-size:10px; padding:0 20px; }
-  
-  /* gallery grid mobile */
-  .post-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));}
-}
-
-/* ══════════════════════════════════
-   TABLET  701px – 1024px
-══════════════════════════════════ */
-@media (min-width:701px) and (max-width:1024px) {
-  .home-header { padding:32px 32px 24px; }
-  .home-title  { font-size:48px; }
-  .home-body   { padding:24px 32px; }
-  .guild-page,.members-page,.board-page { padding:28px 32px; }
-  .home-grid   { grid-template-columns:1fr 1fr; }
-  .member-grid { grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+  .home-header { padding: 24px 20px 16px; }
+  .home-title { font-size: 32px; }
+  .home-grid { grid-template-columns: 1fr; }
+  .guild-page, .members-page, .board-page { padding: 20px 16px; }
+  .section-header { font-size: 24px; }
+  .member-grid { grid-template-columns: 1fr; }
+  .photo-gallery-container { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 </style>
 </head>
 <body>
-
 <div id="loadingScreen">
   <div class="loading-spinner"></div>
-  <div class="loading-text">CONNECTING...</div>
+  <div class="loading-text">LOADING</div>
 </div>
 
-<div class="scan-line-v"></div>
-<div id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="ticker-wrap">
+  <div class="ticker-inner" id="tickerInner"></div>
+</div>
 
 <div class="app-shell">
-
-  <!-- MOBILE TOPBAR -->
   <div id="topbar">
-    <button id="hamburger" onclick="toggleSidebar()">≡ MENU</button>
-    <div class="topbar-title">바른인간생활본부</div>
-    <div style="width:80px;text-align:right;font-size:9px;color:var(--text-dim)" id="clockDisplay">──:──:──</div>
-  </div>
-
-  <!-- TICKER -->
-  <div class="ticker-wrap" ondblclick="editTicker()">
-    <div class="ticker-inner" id="tickerInner"></div>
+    <button id="hamburger" onclick="toggleSidebar()">☰</button>
+    <div class="topbar-title">[ GUILD ]</div>
+    <div></div>
   </div>
 
   <div class="body-row">
-
-    <!-- SIDEBAR -->
     <div id="sidebar">
       <div class="sidebar-logo">
-        <span class="logo-bracket">[ ]</span>
-        <div class="logo-main">바른인간생활본부</div>
-        <div class="logo-sub">BHRH · GUILD SYSTEM</div>
-        <div class="admin-badge">▌ADMIN ONLINE▐</div>
+        <span class="logo-bracket">[</span>
+        <span class="logo-main">GUILD</span>
+        <span class="logo-bracket">]</span>
+        <div class="logo-sub">HUMANITAS</div>
+        <div class="admin-badge">ADMIN</div>
       </div>
+
       <nav>
-        <div class="nav-label">// NAVIGATE</div>
-        <a class="active" onclick="goto('home')"><span>HOME</span></a>
-        <a onclick="goto('guild')"><span>GUILD DESC</span></a>
-        <a onclick="goto('members')"><span>MEMBERS</span></a>
-        <a onclick="goto('board')"><span>BOARD</span></a>
+        <div class="nav-label">MENU</div>
+        <a onclick="goto('home')">HOME</a>
+        <a onclick="goto('guild')">GUILD</a>
+        <a onclick="goto('members')">MEMBERS <span id="memberCountDisplay">0명</span></a>
+        <a onclick="goto('board')">BOARD</a>
       </nav>
+
       <div class="sidebar-footer">
-        <div>SYS VER 0.9.5b</div>
-        <div>STATUS: <span style="color:var(--green)">ONLINE</span></div>
-        <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ACCESS ]</button>
-        <button class="admin-btn" id="logoutBtn" onclick="adminLogout()" style="display:none;border-color:#ff4141;color:#ff4141;">[ LOGOUT ]</button>
+        <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ]</button>
+        <button class="admin-btn" id="logoutBtn" style="display:none" onclick="adminLogout()">[ LOGOUT ]</button>
       </div>
+      <div id="sidebarOverlay" onclick="closeSidebar()"></div>
     </div>
 
-    <!-- MAIN -->
     <div id="main">
       <div id="content">
 
@@ -1025,28 +1183,19 @@ input[type="file"]{display:none;}
         <div class="page active" id="page-home">
           <div class="home-header">
             <div class="home-corner">
-              <div>SYS.ERIN.NETWORK</div>
-              <div class="coord">37°N · 127°E · ERN</div>
-              <div id="clockDisplayDesktop">──:──:──</div>
+              <div>[ <span id="clockDisplay">──:──:──</span> ]</div>
+              <div class="coord">SYSTEM ONLINE</div>
             </div>
-            <div class="home-title">바른인간생활본부</div>
-            <div class="home-title-sub editable-block" style="margin-top:6px">
-              <span id="homeTitleSub">GUILD · NON-HUMAN ADAPTATION DIVISION</span>
-              <button class="edit-overlay-btn" onclick="editInline('homeTitleSub')">EDIT</button>
-            </div>
+            <div class="home-title">HUMANITAS</div>
+            <div class="home-title-sub" id="homeTitleSub">LOADING...</div>
           </div>
 
           <div class="home-body">
             <div class="notice-block">
-              <div class="notice-text" id="mainNotice">로딩 중...<span class="cursor"></span></div>
+              <div class="notice-text" id="mainNotice">로딩 중...</div>
             </div>
 
             <div class="home-grid">
-              <div class="info-card">
-                <div class="info-card-label">// GUILD STATUS</div>
-                <div class="info-card-value" id="memberCountDisplay">─명</div>
-                <div class="info-card-desc">등록된 길드원</div>
-              </div>
               <div class="info-card">
                 <div class="info-card-label">// CURRENT OBJ</div>
                 <div class="info-card-value editable-block" style="font-size:18px;padding-top:4px">
@@ -1235,6 +1384,35 @@ input[type="file"]{display:none;}
   </div>
 </div>
 
+<div class="modal-bg" id="editPostModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('editPostModal')">[ X ]</button>
+    <div class="modal-title">// EDIT POST</div>
+    <input type="hidden" id="editPostKey">
+    <div class="form-group">
+      <label class="form-label">CATEGORY</label>
+      <select class="form-input" id="editPostCategory" style="background:var(--panel);color:var(--green);border:1px solid var(--border);">
+        <option value="공지">공지</option>
+        <option value="사진">사진</option>
+        <option value="관계구함">관계구함</option>
+        <option value="아무말">아무말</option>
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="editPostTitle" placeholder="제목"></div>
+    <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="editPostAuthor" placeholder="작성자"></div>
+    <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="editPostContent" placeholder="내용" style="height:140px"></textarea></div>
+    
+    <div class="form-group">
+      <label class="form-label">GALLERY</label>
+      <button class="btn btn-g" onclick="addEditGalleryImage()" style="width:100%;margin-bottom:8px">[ + ADD IMAGE ]</button>
+      <input type="file" id="editGalleryFileInput" accept="image/*" onchange="handleEditGalleryFile(this)">
+      <div id="editGalleryPreviewContainer" class="gallery-preview-container"></div>
+    </div>
+    
+    <button class="form-submit" onclick="saveEditPost()">[ SAVE CHANGES ]</button>
+  </div>
+</div>
+
 <div class="modal-bg" id="viewPostModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('viewPostModal')">[ X ]</button>
@@ -1263,6 +1441,24 @@ input[type="file"]{display:none;}
     </div>
     
     <div id="vPostAdmin" style="margin-top:14px;text-align:right"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editCommentModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('editCommentModal')">[ X ]</button>
+    <div class="modal-title">// EDIT COMMENT</div>
+    <input type="hidden" id="editCommentPostKey">
+    <input type="hidden" id="editCommentKey">
+    <div class="form-group">
+      <label class="form-label">AUTHOR</label>
+      <input class="form-input" type="text" id="editCommentAuthor" placeholder="작성자">
+    </div>
+    <div class="form-group">
+      <label class="form-label">COMMENT</label>
+      <textarea class="form-textarea" id="editCommentBody" placeholder="댓글 내용"></textarea>
+    </div>
+    <button class="form-submit" onclick="saveEditComment()">[ SAVE CHANGES ]</button>
   </div>
 </div>
 
