@@ -405,11 +405,11 @@ function renderPhotoGallery(filteredPosts) {
         const item = document.createElement('div');
         item.className = 'photo-gallery-item';
         item.innerHTML = `
-          <img src="${imgSrc}" alt="photo" class="photo-gallery-img" onclick="viewPost('${p._key}')">
-          <div class="photo-gallery-overlay">
+          <img src="${imgSrc}" alt="photo" class="photo-gallery-img" onclick="openImageModal('${imgSrc}')">
+          <div class="photo-gallery-overlay" onclick="event.stopPropagation();viewPost('${p._key}')">
             <div class="photo-gallery-info">
               <div class="photo-gallery-title">${p.title}</div>
-              <div class="photo-gallery-author">${p.author}</div>
+              <div class="photo-gallery-author">${p.author} ↗</div>
             </div>
           </div>
         `;
