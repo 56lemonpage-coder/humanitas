@@ -189,11 +189,19 @@ function renderMembers() {
   members.forEach(m => {
     const card = document.createElement('div');
     card.className = 'member-card';
+
+    const sitesHtml = (m.sites && m.sites.length)
+      ? m.sites.map(s => {
+          const label = s.label || s.url;
+          return `<a class="member-card-site-link" href="${s.url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">⟶ ${label}</a>`;
+        }).join('')
+      : '';
+
     card.innerHTML = `
       <div class="member-card-top">
         <div class="member-photo-wrap">
           ${m.photo?`<img src="${m.photo}" alt="${m.name}">`:`<div class="member-photo-placeholder">NO<br>PHOTO</div>`}
-          <button class="photo-upload-btn" onclick="triggerPhoto('${m._key}')">[ PHOTO ]</button>
+          <button class="photo-upload-btn" onclick="event.stopPropagation();triggerPhoto('${m._key}')">[ PHOTO ]</button>
           <input type="file" id="pf_${m._key}" accept="image/*" onchange="uploadPhoto(this,'${m._key}')">
         </div>
         <div class="member-card-info">
@@ -203,13 +211,46 @@ function renderMembers() {
         </div>
       </div>
       <div class="member-card-desc">${m.desc}</div>
+      ${sitesHtml ? `<div class="member-card-sites">${sitesHtml}</div>` : ''}
       <div class="member-card-actions" style="${isAdmin?'':'display:none'}">
-        <button class="btn btn-g" onclick="openEditMember('${m._key}')">[ EDIT ]</button>
-        ${m.id!=='001'?`<button class="btn btn-r" onclick="delMember('${m._key}')">[ DEL ]</button>`:''}
+        <button class="btn btn-g" onclick="event.stopPropagation();openEditMember('${m._key}')">[ EDIT ]</button>
+        ${m.id!=='001'?`<button class="btn btn-r" onclick="event.stopPropagation();delMember('${m._key}')">[ DEL ]</button>`:''}
       </div>`;
+    card.addEventListener('click', () => openMemberProfile(m._key));
     grid.appendChild(card);
   });
 }
+
+window.openMemberProfile = key => {
+  const m = members.find(x => x._key === key);
+  if (!m) return;
+  document.getElementById('profileName').textContent = m.name;
+  document.getElementById('profileIdRole').textContent = `ID #${m.id} · ${m.role}`;
+  document.getElementById('profileType').textContent = m.type;
+  document.getElementById('profileDesc').textContent = m.desc;
+  const photoEl = document.getElementById('profilePhoto');
+  const photoWrap = document.getElementById('profilePhotoWrap');
+  if (m.photo) {
+    photoEl.src = m.photo;
+    photoEl.style.display = 'block';
+    photoWrap.querySelector('.member-photo-placeholder') && (photoWrap.querySelector('.member-photo-placeholder').style.display='none');
+  } else {
+    photoEl.style.display = 'none';
+    const ph = photoWrap.querySelector('.member-photo-placeholder');
+    if (ph) ph.style.display = 'flex';
+  }
+  const sitesContainer = document.getElementById('profileSites');
+  if (m.sites && m.sites.length) {
+    sitesContainer.innerHTML = m.sites.map(s =>
+      `<a class="profile-site-link" href="${s.url}" target="_blank" rel="noopener noreferrer">⟶ ${s.label || s.url}</a>`
+    ).join('');
+    sitesContainer.style.display = 'block';
+  } else {
+    sitesContainer.innerHTML = '';
+    sitesContainer.style.display = 'none';
+  }
+  openModal('memberProfileModal');
+};
 window.triggerPhoto = key => document.getElementById('pf_'+key).click();
 window.uploadPhoto = (input, key) => {
   const f = input.files[0]; if(!f) return;
@@ -244,6 +285,7 @@ window.openAddMember = () => {
   const img=document.getElementById('newPhotoImg');
   img.style.display='none'; img.src='';
   document.getElementById('newPhotoPlaceholder').style.display='flex';
+  document.getElementById('newSitesList').innerHTML='';
   openModal('addMemberModal');
 };
 window.saveMember = async () => {
@@ -254,7 +296,8 @@ window.saveMember = async () => {
   const desc=document.getElementById('mDesc').value.trim();
   const imgEl=document.getElementById('newPhotoImg');
   const photo=imgEl.style.display!=='none'&&imgEl.src?imgEl.src:'';
-  await dbPush('members',{id:String(members.length+1).padStart(3,'0'),role,name,type,desc,photo});
+  const sites = collectSites('newSitesList');
+  await dbPush('members',{id:String(members.length+1).padStart(3,'0'),role,name,type,desc,photo,sites});
   closeModal('addMemberModal');
 };
 window.openEditMember = key => {
@@ -266,6 +309,9 @@ window.openEditMember = key => {
   document.getElementById('editMDesc').value=m.desc;
   const img=document.getElementById('editPhotoImg');
   img.src=m.photo||'';
+  const container = document.getElementById('editSitesList');
+  container.innerHTML = '';
+  (m.sites || []).forEach(s => addSiteRow(container, s.label, s.url));
   openModal('editMemberModal');
 };
 window.saveEditMember = async () => {
@@ -277,13 +323,37 @@ window.saveEditMember = async () => {
   const desc=document.getElementById('editMDesc').value.trim();
   const img=document.getElementById('editPhotoImg');
   const photo=img.src||'';
-  await dbUpd('members/'+key,{name,type,role,desc,photo});
+  const sites = collectSites('editSitesList');
+  await dbUpd('members/'+key,{name,type,role,desc,photo,sites});
   closeModal('editMemberModal');
 };
 window.delMember = async key => {
   if(!confirm('삭제하시겠습니까?')) return;
   await dbDel('members/'+key);
 };
+
+// ── member sites helpers ─────────────────────────────────────
+window.addSiteRow = (container, label='', url='') => {
+  if (typeof container === 'string') container = document.getElementById(container);
+  const row = document.createElement('div');
+  row.className = 'site-row';
+  row.innerHTML = `
+    <input class="form-input site-label-input" type="text" placeholder="표시 이름 (선택)" value="${label}" style="flex:1;min-width:80px">
+    <input class="form-input site-url-input" type="url" placeholder="https://..." value="${url}" style="flex:2;min-width:120px">
+    <button class="btn btn-r" onclick="this.parentElement.remove()" style="padding:4px 8px;font-size:10px">[ ✕ ]</button>`;
+  container.appendChild(row);
+};
+
+function collectSites(containerId) {
+  const rows = document.querySelectorAll('#'+containerId+' .site-row');
+  const result = [];
+  rows.forEach(row => {
+    const url = row.querySelector('.site-url-input').value.trim();
+    const label = row.querySelector('.site-label-input').value.trim();
+    if (url) result.push({ label: label || url, url });
+  });
+  return result;
+}
 
 // ── board ────────────────────────────────────────────────────
 function renderBoard() {
@@ -847,6 +917,14 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .member-card-type{font-size:10px; color:var(--text-dim); margin-top:2px; word-break:keep-all;}
 .member-card-desc{font-family:'Noto Sans KR',sans-serif; font-size:11px; color:var(--text-dim); margin-top:10px; line-height:1.7; border-top:1px solid var(--border); padding-top:10px;}
 .member-card-actions{display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;}
+.member-card{cursor:pointer; transition:border-color .2s, box-shadow .2s;}
+.member-card:hover{border-color:var(--green); box-shadow:0 0 8px rgba(0,255,65,.15);}
+.member-card-sites{margin-top:8px; display:flex; flex-direction:column; gap:4px;}
+.member-card-site-link{font-size:10px; color:var(--green); text-decoration:none; letter-spacing:.04em; opacity:.75; transition:opacity .15s;}
+.member-card-site-link:hover{opacity:1; text-decoration:underline;}
+.site-row{display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap;}
+.profile-site-link{font-size:12px; color:var(--green); text-decoration:none; letter-spacing:.04em; padding:5px 10px; border:1px solid var(--border); display:inline-block; transition:background .15s;}
+.profile-site-link:hover{background:rgba(0,255,65,.1); text-decoration:underline;}
 
 /* ── BOARD ── */
 .board-list{margin-top:8px;}
@@ -1144,6 +1222,11 @@ input[type="file"]{display:none;}
     </div>
     <div class="form-group"><label class="form-label">ROLE</label><input class="form-input" type="text" id="mRole" value="MEMBER"></div>
     <div class="form-group"><label class="form-label">DESCRIPTION</label><textarea class="form-textarea" id="mDesc" placeholder="간략한 소개"></textarea></div>
+    <div class="form-group">
+      <label class="form-label">SITE LINKS <span style="font-size:9px;color:var(--text-dim)">(프로필 링크)</span></label>
+      <div id="newSitesList"></div>
+      <button class="btn btn-g" onclick="addSiteRow('newSitesList')" style="width:100%;margin-top:6px">[ + ADD LINK ]</button>
+    </div>
     <button class="form-submit" onclick="saveMember()">[ REGISTER ]</button>
   </div>
 </div>
@@ -1169,6 +1252,11 @@ input[type="file"]{display:none;}
     </div>
     <div class="form-group"><label class="form-label">ROLE</label><input class="form-input" type="text" id="editMRole"></div>
     <div class="form-group"><label class="form-label">DESCRIPTION</label><textarea class="form-textarea" id="editMDesc"></textarea></div>
+    <div class="form-group">
+      <label class="form-label">SITE LINKS <span style="font-size:9px;color:var(--text-dim)">(프로필 링크)</span></label>
+      <div id="editSitesList"></div>
+      <button class="btn btn-g" onclick="addSiteRow('editSitesList')" style="width:100%;margin-top:6px">[ + ADD LINK ]</button>
+    </div>
     <button class="form-submit" onclick="saveEditMember()">[ SAVE CHANGES ]</button>
   </div>
 </div>
@@ -1285,6 +1373,26 @@ input[type="file"]{display:none;}
     <div class="form-group"><label class="form-label">SECTION TITLE</label><input class="form-input" type="text" id="newSecTitle" placeholder="CUSTOM TITLE"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="newSecContent" placeholder="내용 입력" style="height:130px"></textarea></div>
     <button class="form-submit" id="addSectionSubmit" onclick="saveSection()">[ ADD ]</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="memberProfileModal">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeModal('memberProfileModal')">[ X ]</button>
+    <div class="modal-title">// MEMBER PROFILE</div>
+    <div style="display:flex; gap:16px; align-items:flex-start; margin-bottom:16px">
+      <div id="profilePhotoWrap" style="flex-shrink:0">
+        <img id="profilePhoto" src="" alt="" style="width:80px;height:100px;object-fit:cover;border:1px solid var(--border);display:none">
+        <div class="member-photo-placeholder" style="width:80px;height:100px;font-size:9px">NO<br>PHOTO</div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--text-dim);letter-spacing:.08em;margin-bottom:4px" id="profileIdRole"></div>
+        <div style="font-size:20px;font-weight:700;color:var(--green);letter-spacing:.04em;margin-bottom:4px" id="profileName"></div>
+        <div style="font-size:11px;color:var(--text-dim);letter-spacing:.05em" id="profileType"></div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap;border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px" id="profileDesc"></div>
+    <div id="profileSites" style="display:none;border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:6px"></div>
   </div>
 </div>
 </body>
