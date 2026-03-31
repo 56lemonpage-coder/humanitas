@@ -64,12 +64,12 @@ function startListeners() {
   dbListen('members', val => {
     members = val ? Object.entries(val).map(([k,v])=>({_key:k,...v})) : [];
     renderMembers();
-    document.getElementById('memberCountDisplay').textContent = members.length+'명';
+    const countEl = document.getElementById('memberCountDisplay');
+    if(countEl) countEl.textContent = members.length + '명';
   });
   dbListen('posts', val => {
     posts = val
-      ? Object.entries(val).map(([k,v])=>({_key:k,...v}}).filter(p=>!p.deleted).sort((a,b)=>{
-          // 상단 고정된 게시물을 먼저 표시
+      ? Object.entries(val).map(([k,v])=>({_key:k,...v})).filter(p=>!p.deleted).sort((a,b)=>{
           if (a.pinned && !b.pinned) return -1;
           if (!a.pinned && b.pinned) return 1;
           return b.ts - a.ts;
@@ -209,7 +209,6 @@ function renderMembers() {
       </div>`;
     grid.appendChild(card);
   });
-  document.getElementById('memberCountDisplay').textContent = members.length+'명';
 }
 window.triggerPhoto = key => document.getElementById('pf_'+key).click();
 window.uploadPhoto = (input, key) => {
@@ -295,7 +294,6 @@ function renderBoard() {
     ? posts 
     : posts.filter(p => p.category === currentFilter);
 
-  // 사진 카테고리인 경우 갤러리 뷰로 표시
   if (currentFilter === '사진') {
     renderPhotoGallery(filteredPosts);
     return;
@@ -319,7 +317,6 @@ function renderBoard() {
   });
 }
 
-// 사진 카테고리용 갤러리 뷰 렌더링
 function renderPhotoGallery(filteredPosts) {
   const list=document.getElementById('boardList');
   list.innerHTML='';
@@ -334,7 +331,7 @@ function renderPhotoGallery(filteredPosts) {
   
   filteredPosts.forEach(p => {
     if (p.gallery && p.gallery.length > 0) {
-      p.gallery.forEach((imgSrc, idx) => {
+      p.gallery.forEach((imgSrc) => {
         const item = document.createElement('div');
         item.className = 'photo-gallery-item';
         item.innerHTML = `
@@ -350,7 +347,6 @@ function renderPhotoGallery(filteredPosts) {
       });
     }
   });
-  
   list.appendChild(galleryContainer);
 }
 
@@ -363,7 +359,6 @@ window.savePost = async () => {
   const now=new Date();
   const date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
   
-  // 갤러리 이미지 수집
   const galleryImgs = [];
   const galleryInputs = document.querySelectorAll('#galleryPreviewContainer img');
   galleryInputs.forEach(img => {
@@ -404,7 +399,6 @@ window.viewPost = key => {
   document.getElementById('vPostMeta').textContent=`AUTHOR: ${p.author}  ·  DATE: ${p.date}`;
   document.getElementById('vPostBody').textContent=p.body;
   
-  // 갤러리 렌더링
   const galleryContainer = document.getElementById('vPostGallery');
   if(p.gallery && p.gallery.length > 0) {
     galleryContainer.innerHTML = '<div class="gallery-label">// GALLERY</div>';
@@ -422,11 +416,9 @@ window.viewPost = key => {
     galleryContainer.innerHTML = '';
   }
   
-  // 댓글 렌더링
   renderComments(key);
   document.getElementById('vPostKey').value = key;
   
-  // 관리자 버튼 (수정, 삭제, 고정)
   document.getElementById('vPostAdmin').innerHTML=isAdmin
     ?`<button class="btn btn-g" onclick="openEditPost('${key}')" style="margin-right:6px">[ EDIT ]</button>
       <button class="btn btn-g" onclick="togglePinPost('${key}')" style="margin-right:6px">${p.pinned ? '[ 고정해제 ]' : '[ 고정 ]'}</button>
@@ -450,7 +442,6 @@ window.openEditPost = (key) => {
   document.getElementById('editPostContent').value = p.body;
   document.getElementById('editPostCategory').value = p.category;
   
-  // 기존 갤러리 이미지 표시
   const container = document.getElementById('editGalleryPreviewContainer');
   container.innerHTML = '';
   if (p.gallery && p.gallery.length > 0) {
@@ -479,7 +470,6 @@ window.saveEditPost = async () => {
   const author = document.getElementById('editPostAuthor').value.trim() || '익명';
   const category = document.getElementById('editPostCategory').value;
   
-  // 갤러리 이미지 수집
   const galleryImgs = [];
   const galleryInputs = document.querySelectorAll('#editGalleryPreviewContainer img');
   galleryInputs.forEach(img => {
@@ -535,8 +525,6 @@ async function renderComments(postKey) {
   const comments = snap.exists() ? Object.entries(snap.val()).map(([k,v])=>({_key:k,...v})) : [];
   
   comments.sort((a,b) => a.ts - b.ts);
-  
-  // 로컬 스토리지에서 사용자가 작성한 댓글 ID 목록 가져오기
   const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
   
   comments.forEach(c => {
@@ -570,36 +558,26 @@ window.saveComment = async () => {
   const postKey = document.getElementById('vPostKey').value;
   const author = document.getElementById('commentAuthor').value.trim() || '익명';
   const body = document.getElementById('commentBody').value.trim();
-  
   if(!body) return;
-  
   const now = new Date();
   const date = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  
   const ref = await dbPush(`posts/${postKey}/comments`, {author, body, date, ts: Date.now()});
-  
-  // 로컬 스토리지에 본인이 작성한 댓글 ID 저장
   const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
   myCommentIds[ref.key] = true;
   localStorage.setItem('myCommentIds', JSON.stringify(myCommentIds));
-  
   document.getElementById('commentAuthor').value = '';
   document.getElementById('commentBody').value = '';
-  
   renderComments(postKey);
 };
 
-// ── comment edit ─────────────────────────────────────────────
 window.openEditComment = async (postKey, commentKey) => {
   const snap = await dbGet(`posts/${postKey}/comments/${commentKey}`);
   if (!snap.exists()) return;
-  
   const comment = snap.val();
   document.getElementById('editCommentPostKey').value = postKey;
   document.getElementById('editCommentKey').value = commentKey;
   document.getElementById('editCommentAuthor').value = comment.author;
   document.getElementById('editCommentBody').value = comment.body;
-  
   openModal('editCommentModal');
 };
 
@@ -608,14 +586,10 @@ window.saveEditComment = async () => {
   const commentKey = document.getElementById('editCommentKey').value;
   const author = document.getElementById('editCommentAuthor').value.trim() || '익명';
   const body = document.getElementById('editCommentBody').value.trim();
-  
   if (!body) return;
-  
   const now = new Date();
   const date = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  
   await dbUpd(`posts/${postKey}/comments/${commentKey}`, { author, body, date });
-  
   closeModal('editCommentModal');
   renderComments(postKey);
 };
@@ -623,12 +597,9 @@ window.saveEditComment = async () => {
 window.delComment = async (postKey, commentKey) => {
   if(!confirm('댓글을 삭제하시겠습니까?')) return;
   await dbDel(`posts/${postKey}/comments/${commentKey}`);
-  
-  // 로컬 스토리지에서 댓글 ID 제거
   const myCommentIds = JSON.parse(localStorage.getItem('myCommentIds') || '{}');
   delete myCommentIds[commentKey];
   localStorage.setItem('myCommentIds', JSON.stringify(myCommentIds));
-  
   renderComments(postKey);
 };
 
@@ -688,8 +659,10 @@ window.closeModal = id => document.getElementById(id).classList.remove('open');
 function tick() {
   const t=new Date();
   const s=[t.getHours(),t.getMinutes(),t.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
-  document.getElementById('clockDisplay').textContent=s;
-  document.getElementById('statusTime').textContent=s;
+  const el1 = document.getElementById('clockDisplay');
+  const el2 = document.getElementById('clockDisplayDesktop');
+  if(el1) el1.textContent = s;
+  if(el2) el2.textContent = s;
 }
 setInterval(tick,1000); tick();
 
@@ -720,12 +693,7 @@ boot();
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
-
-html, body {
-  height: 100%;
-  overflow: hidden;
-}
-
+html, body { height: 100%; overflow: hidden; }
 body {
   background:var(--bg); color:var(--green);
   font-family:'Share Tech Mono',monospace;
@@ -733,13 +701,12 @@ body {
   position:relative;
 }
 
-/* scanline */
+/* scanline & noise */
 body::before {
   content:''; position:fixed; inset:0;
   background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,var(--scanline) 2px,var(--scanline) 4px);
   pointer-events:none; z-index:9999; opacity:0.18;
 }
-/* noise */
 body::after {
   content:''; position:fixed; inset:-50%; width:200%; height:200%;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
@@ -776,354 +743,209 @@ body::after {
 .loading-text{font-family:'VT323',monospace;font-size:24px;color:var(--green);text-shadow:0 0 12px var(--green);letter-spacing:4px;animation:blink 1s step-end infinite;}
 
 /* ── LAYOUT SHELL ── */
-.app-shell {
-  display:flex;
-  flex-direction:column;
-  height:100vh;
-  overflow:hidden;
-}
-
-/* ticker */
+.app-shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
 .ticker-wrap {
-  background:var(--green);padding:5px 0;
-  overflow:hidden;border-bottom:1px solid var(--green-dim);
-  flex-shrink:0;cursor:default;z-index:20;position:relative;
+  background:var(--green); padding:5px 0; overflow:hidden; border-bottom:1px solid var(--green-dim);
+  flex-shrink:0; cursor:default; z-index:20; position:relative;
 }
-.ticker-inner{display:flex;white-space:nowrap;width:max-content;animation:marquee 35s linear infinite;}
-.ticker-item{font-size:11px;color:var(--bg);font-weight:bold;letter-spacing:1px;padding:0 32px;}
-
-/* body row = sidebar + main */
-.body-row {
-  display:flex;
-  flex:1;
-  overflow:hidden;
-  position:relative;
-}
+.ticker-inner{display:flex; white-space:nowrap; width:max-content; animation:marquee 35s linear infinite;}
+.ticker-item{font-size:11px; color:var(--bg); font-weight:bold; letter-spacing:1px; padding:0 32px;}
+.body-row { display:flex; flex:1; overflow:hidden; position:relative; }
 
 /* ── SIDEBAR ── */
 #sidebar {
-  width:var(--sidebar-w);
-  min-width:var(--sidebar-w);
-  background:var(--panel);
-  border-right:1px solid var(--border);
-  display:flex; flex-direction:column;
-  z-index:100;
-  animation:flicker 8s infinite;
-  transition: transform .25s ease;
-  overflow-y: auto;
-  flex-shrink: 0;
+  width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--panel);
+  border-right:1px solid var(--border); display:flex; flex-direction:column;
+  z-index:100; animation:flicker 8s infinite; transition: transform .25s ease;
+  overflow-y: auto; flex-shrink: 0;
 }
-
-.sidebar-logo{padding:20px 16px 14px;border-bottom:1px solid var(--border);text-align:center;}
-.logo-bracket{font-family:'VT323',monospace;font-size:28px;color:var(--green-dim);line-height:.8;display:block;text-shadow:0 0 8px var(--green-dim);}
-.logo-main{font-family:'VT323',monospace;font-size:20px;color:var(--green);text-shadow:0 0 10px var(--green);line-height:1.2;letter-spacing:1px;}
-.logo-sub{font-size:9px;color:var(--text-dim);margin-top:4px;letter-spacing:2px;}
-.admin-badge{display:none;font-size:8px;letter-spacing:2px;color:var(--green);border:1px solid var(--green-dim);padding:2px 6px;margin-top:4px;text-align:center;animation:blink 2s step-end infinite;}
+.sidebar-logo{padding:20px 16px 14px; border-bottom:1px solid var(--border); text-align:center;}
+.logo-bracket{font-family:'VT323',monospace; font-size:28px; color:var(--green-dim); line-height:.8; display:block; text-shadow:0 0 8px var(--green-dim);}
+.logo-main{font-family:'VT323',monospace; font-size:20px; color:var(--green); text-shadow:0 0 10px var(--green); line-height:1.2; letter-spacing:1px;}
+.logo-sub{font-size:9px; color:var(--text-dim); margin-top:4px; letter-spacing:2px;}
+.admin-badge{display:none; font-size:8px; letter-spacing:2px; color:var(--green); border:1px solid var(--green-dim); padding:2px 6px; margin-top:4px; text-align:center; animation:blink 2s step-end infinite;}
 .admin-logged-in .admin-badge{display:block;}
 
-nav{flex:1;padding:12px 0;}
-.nav-label{font-size:9px;color:var(--text-dim);letter-spacing:3px;padding:6px 20px 4px;}
+nav{flex:1; padding:12px 0;}
+.nav-label{font-size:9px; color:var(--text-dim); letter-spacing:3px; padding:6px 20px 4px;}
 nav a{
-  display:flex;align-items:center;gap:10px;padding:11px 20px;
-  color:var(--text-dim);text-decoration:none;font-size:12px;letter-spacing:1px;
-  border-left:2px solid transparent;transition:all .15s;cursor:pointer;
+  display:flex; align-items:center; gap:10px; padding:11px 20px;
+  color:var(--text-dim); text-decoration:none; font-size:12px; letter-spacing:1px;
+  border-left:2px solid transparent; transition:all .15s; cursor:pointer;
 }
-nav a::before{content:'>';opacity:0;transition:opacity .1s;color:var(--green);}
-nav a:hover,nav a.active{color:var(--green);border-left-color:var(--green);background:var(--green-glow);text-shadow:0 0 8px var(--green);}
+nav a::before{content:'>'; opacity:0; transition:opacity .1s; color:var(--green);}
+nav a:hover,nav a.active{color:var(--green); border-left-color:var(--green); background:var(--green-glow); text-shadow:0 0 8px var(--green);}
 nav a:hover::before,nav a.active::before{opacity:1;}
 
-.sidebar-footer{padding:10px 16px;border-top:1px solid var(--border);font-size:9px;color:var(--text-dim);line-height:1.8;}
+.sidebar-footer{padding:10px 16px; border-top:1px solid var(--border); font-size:9px; color:var(--text-dim); line-height:1.8;}
 .admin-btn{
-  display:block;margin-top:8px;padding:6px 10px;
-  border:1px solid var(--text-dim);color:var(--text-dim);
-  font-size:9px;letter-spacing:1px;text-align:center;cursor:pointer;
-  transition:all .15s;background:none;font-family:'Share Tech Mono',monospace;width:100%;
+  display:block; margin-top:8px; padding:6px 10px;
+  border:1px solid var(--text-dim); color:var(--text-dim);
+  font-size:9px; letter-spacing:1px; text-align:center; cursor:pointer;
+  transition:all .15s; background:none; font-family:'Share Tech Mono',monospace; width:100%;
 }
-.admin-btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
+.admin-btn:hover{border-color:var(--green); color:var(--green); box-shadow:0 0 8px var(--green-glow);}
 
-/* ── SIDEBAR OVERLAY (mobile) ── */
-#sidebarOverlay{
-  display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99;
-}
+/* ── MOBILE ── */
+#sidebarOverlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99; }
 #sidebarOverlay.active{display:block;}
-
-/* ── HAMBURGER ── */
-#hamburger{
-  display:none;
-  background:none;border:none;color:var(--green);
-  font-size:20px;cursor:pointer;padding:0 14px;
-  font-family:'Share Tech Mono',monospace;letter-spacing:1px;
-}
-
-/* ── TOPBAR (mobile) ── */
-#topbar {
-  display:none;
-  align-items:center;justify-content:space-between;
-  background:var(--panel);border-bottom:1px solid var(--border);
-  padding:10px 16px;flex-shrink:0;z-index:50;
-}
-.topbar-title{font-family:'VT323',monospace;font-size:22px;color:var(--green);text-shadow:0 0 8px var(--green);}
+#hamburger{ display:none; background:none; border:none; color:var(--green); font-size:20px; cursor:pointer; padding:0 14px; font-family:'Share Tech Mono',monospace; letter-spacing:1px; }
+#topbar { display:none; align-items:center; justify-content:space-between; background:var(--panel); border-bottom:1px solid var(--border); padding:10px 16px; flex-shrink:0; z-index:50; }
+.topbar-title{font-family:'VT323',monospace; font-size:22px; color:var(--green); text-shadow:0 0 8px var(--green);}
 
 /* ── MAIN ── */
-#main{
-  flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;
-}
-
-/* ── STATUS BAR ── */
-.status-bar{
-  padding:4px 16px;border-top:1px solid var(--border);
-  font-size:9px;color:var(--text-dim);
-  display:flex;justify-content:space-between;align-items:center;
-  background:var(--panel);flex-shrink:0;letter-spacing:1px;
-}
-.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;animation:blink 2s ease-in-out infinite;}
-.scan-line-v{position:fixed;left:0;right:0;height:2px;background:linear-gradient(to right,transparent,var(--green-dim),transparent);opacity:.12;animation:scan-v 6s linear infinite;pointer-events:none;z-index:9997;}
-
-/* ── CONTENT SCROLL ── */
-#content{
-  flex:1;
-  overflow-y:auto;
-  overflow-x:hidden;
-  scrollbar-width:thin;
-  scrollbar-color:var(--green-dim) var(--panel);
-}
+#main{ flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+.status-bar{ padding:4px 16px; border-top:1px solid var(--border); font-size:9px; color:var(--text-dim); display:flex; justify-content:space-between; align-items:center; background:var(--panel); flex-shrink:0; letter-spacing:1px; }
+.status-dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:4px; animation:blink 2s ease-in-out infinite;}
+.scan-line-v{position:fixed; left:0; right:0; height:2px; background:linear-gradient(to right,transparent,var(--green-dim),transparent); opacity:.12; animation:scan-v 6s linear infinite; pointer-events:none; z-index:9997;}
+#content{ flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:var(--green-dim) var(--panel); }
 #content::-webkit-scrollbar{width:4px;}
 #content::-webkit-scrollbar-track{background:var(--panel);}
 #content::-webkit-scrollbar-thumb{background:var(--green-dim);}
-
 .page{display:none;}
 .page.active{display:block;}
 
 /* ── HOME ── */
-.home-header{
-  position:relative;padding:40px 40px 28px;
-  border-bottom:1px solid var(--border);overflow:hidden;
-}
-.home-header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 20% 50%,rgba(0,255,65,.04) 0%,transparent 70%);}
-.home-title{font-family:'VT323',monospace;font-size:56px;line-height:1;color:var(--green);text-shadow:0 0 20px rgba(0,255,65,.5),2px 2px 0 var(--green-dark);animation:glitch 12s steps(1) infinite;}
-.home-title-sub{font-size:10px;color:var(--text-dim);letter-spacing:3px;margin-top:6px;}
-.home-corner{position:absolute;top:14px;right:16px;font-size:9px;color:var(--text-dim);text-align:right;line-height:2;}
-.home-corner .coord{color:var(--green-dim);font-size:10px;}
+.home-header{ position:relative; padding:40px 40px 28px; border-bottom:1px solid var(--border); overflow:hidden; }
+.home-header::before{content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 20% 50%,rgba(0,255,65,.04) 0%,transparent 70%);}
+.home-title{font-family:'VT323',monospace; font-size:56px; line-height:1; color:var(--green); text-shadow:0 0 20px rgba(0,255,65,.5),2px 2px 0 var(--green-dark); animation:glitch 12s steps(1) infinite;}
+.home-title-sub{font-size:10px; color:var(--text-dim); letter-spacing:3px; margin-top:6px;}
+.home-corner{position:absolute; top:14px; right:16px; font-size:9px; color:var(--text-dim); text-align:right; line-height:2;}
+.home-corner .coord{color:var(--green-dim); font-size:10px;}
 .home-body{padding:28px 40px;}
+.notice-block{ border:1px solid var(--border); padding:18px 20px; position:relative; margin-bottom:20px; animation:pulse-border 4s ease-in-out infinite; }
+.notice-block::before{content:'// NOTICE'; position:absolute; top:-8px; left:16px; background:var(--bg); padding:0 8px; font-size:9px; color:var(--green-dim); letter-spacing:2px;}
+.notice-text{font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--text); line-height:1.9; white-space:pre-wrap;}
+.cursor{display:inline-block; width:8px; height:14px; background:var(--green); margin-left:2px; vertical-align:middle; animation:blink 1s step-end infinite;}
+.home-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px;}
+.info-card{border:1px solid var(--border); padding:14px; transition:all .2s; position:relative;}
+.info-card:hover{border-color:var(--green-dim); box-shadow:0 0 12px var(--green-glow);}
+.info-card-label{font-size:9px; letter-spacing:3px; color:var(--text-dim); margin-bottom:6px;}
+.info-card-value{font-family:'VT323',monospace; font-size:26px; color:var(--green); text-shadow:0 0 10px rgba(0,255,65,.4);}
+.info-card-desc{font-size:10px; color:var(--text-dim); margin-top:4px;}
 
-.notice-block{
-  border:1px solid var(--border);padding:18px 20px;
-  position:relative;margin-bottom:20px;
-  animation:pulse-border 4s ease-in-out infinite;
-}
-.notice-block::before{content:'// NOTICE';position:absolute;top:-8px;left:16px;background:var(--bg);padding:0 8px;font-size:9px;color:var(--green-dim);letter-spacing:2px;}
-.notice-text{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:1.9;white-space:pre-wrap;}
-.cursor{display:inline-block;width:8px;height:14px;background:var(--green);margin-left:2px;vertical-align:middle;animation:blink 1s step-end infinite;}
-
-.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;}
-.info-card{border:1px solid var(--border);padding:14px;transition:all .2s;position:relative;}
-.info-card:hover{border-color:var(--green-dim);box-shadow:0 0 12px var(--green-glow);}
-.info-card-label{font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:6px;}
-.info-card-value{font-family:'VT323',monospace;font-size:26px;color:var(--green);text-shadow:0 0 10px rgba(0,255,65,.4);}
-.info-card-desc{font-size:10px;color:var(--text-dim);margin-top:4px;}
-
-/* ── GUILD PAGE ── */
+/* ── GUILD & MEMBERS ── */
 .guild-page,.members-page,.board-page{padding:36px 40px;}
-.section-header{font-family:'VT323',monospace;font-size:34px;color:var(--green);text-shadow:0 0 12px rgba(0,255,65,.4);margin-bottom:4px;}
-.section-sub{font-size:9px;color:var(--text-dim);letter-spacing:3px;margin-bottom:24px;padding-bottom:14px;border-bottom:1px solid var(--border);}
-.guild-block{margin-bottom:28px;position:relative;}
-.guild-block-title{font-size:10px;color:var(--green);letter-spacing:3px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.guild-block-title::after{content:'';flex:1;height:1px;background:var(--border);min-width:20px;}
-.guild-text{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:2;padding-left:12px;border-left:2px solid var(--green-dark);white-space:pre-wrap;}
-
-/* ── MEMBERS ── */
-.member-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:8px;}
-.member-card{border:1px solid var(--border);padding:14px;transition:all .2s;position:relative;}
-.member-card:hover{border-color:var(--green);box-shadow:0 0 16px var(--green-glow);}
-.member-card-top{display:flex;gap:12px;align-items:flex-start;}
-.member-photo-wrap{width:72px;height:90px;border:1px solid var(--border);overflow:hidden;background:var(--green-dark);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
-.member-photo-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
-.member-photo-placeholder{font-size:9px;color:var(--text-dim);text-align:center;line-height:1.6;}
-.photo-upload-btn{position:absolute;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;font-size:9px;color:var(--green);cursor:pointer;letter-spacing:1px;border:none;width:100%;font-family:'Share Tech Mono',monospace;}
+.section-header{font-family:'VT323',monospace; font-size:34px; color:var(--green); text-shadow:0 0 12px rgba(0,255,65,.4); margin-bottom:4px;}
+.section-sub{font-size:9px; color:var(--text-dim); letter-spacing:3px; margin-bottom:24px; padding-bottom:14px; border-bottom:1px solid var(--border);}
+.guild-block{margin-bottom:28px; position:relative;}
+.guild-block-title{font-size:10px; color:var(--green); letter-spacing:3px; margin-bottom:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.guild-block-title::after{content:''; flex:1; height:1px; background:var(--border); min-width:20px;}
+.guild-text{font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--text); line-height:2; padding-left:12px; border-left:2px solid var(--green-dark); white-space:pre-wrap;}
+.member-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; margin-top:8px;}
+.member-card{border:1px solid var(--border); padding:14px; transition:all .2s; position:relative;}
+.member-card:hover{border-color:var(--green); box-shadow:0 0 16px var(--green-glow);}
+.member-card-top{display:flex; gap:12px; align-items:flex-start;}
+.member-photo-wrap{width:72px; height:90px; border:1px solid var(--border); overflow:hidden; background:var(--green-dark); display:flex; align-items:center; justify-content:center; position:relative; flex-shrink:0;}
+.member-photo-wrap img{width:100%; height:100%; object-fit:cover; display:block;}
+.member-photo-placeholder{font-size:9px; color:var(--text-dim); text-align:center; line-height:1.6;}
+.photo-upload-btn{position:absolute; inset:0; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; font-size:9px; color:var(--green); cursor:pointer; letter-spacing:1px; border:none; width:100%; font-family:'Share Tech Mono',monospace;}
 .admin-logged-in .member-photo-wrap:hover .photo-upload-btn{display:flex;}
-.member-card-info{flex:1;min-width:0;}
-.member-card-id{font-size:9px;color:var(--text-dim);letter-spacing:2px;margin-bottom:4px;}
-.member-card-name{font-family:'VT323',monospace;font-size:26px;color:var(--green);text-shadow:0 0 8px rgba(0,255,65,.3);line-height:1.1;word-break:break-all;}
-.member-card-type{font-size:10px;color:var(--text-dim);margin-top:2px;word-break:keep-all;}
-.member-card-desc{font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--text-dim);margin-top:10px;line-height:1.7;border-top:1px solid var(--border);padding-top:10px;}
-.member-card-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;}
+.member-card-info{flex:1; min-width:0;}
+.member-card-id{font-size:9px; color:var(--text-dim); letter-spacing:2px; margin-bottom:4px;}
+.member-card-name{font-family:'VT323',monospace; font-size:26px; color:var(--green); text-shadow:0 0 8px rgba(0,255,65,.3); line-height:1.1; word-break:break-all;}
+.member-card-type{font-size:10px; color:var(--text-dim); margin-top:2px; word-break:keep-all;}
+.member-card-desc{font-family:'Noto Sans KR',sans-serif; font-size:11px; color:var(--text-dim); margin-top:10px; line-height:1.7; border-top:1px solid var(--border); padding-top:10px;}
+.member-card-actions{display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;}
 
 /* ── BOARD ── */
 .board-list{margin-top:8px;}
-.board-item{
-  display:flex;align-items:flex-start;gap:10px;
-  padding:12px 0;border-bottom:1px solid var(--border);transition:all .15s;
-  flex-wrap:wrap;
-}
+.board-item{ display:flex; align-items:flex-start; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); transition:all .15s; flex-wrap:wrap; }
 .board-item:hover{padding-left:8px;}
 .board-item:hover .board-item-title{color:var(--green);}
-.board-item-num{font-size:10px;color:var(--text-dim);min-width:28px;padding-top:2px;flex-shrink:0;}
-.board-item-cat{color:var(--green-dim);font-size:11px;margin-right:6px;font-weight:bold;}
-.board-item-pinned{color:var(--green);font-size:10px;margin-right:6px;font-weight:bold;}
-.board-item-title{flex:1;font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);transition:color .15s;cursor:pointer;word-break:keep-all;min-width:0;}
-.board-item-meta{font-size:9px;color:var(--text-dim);white-space:nowrap;}
-
-.board-filters{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap;}
-.board-filter-btn{
-  background:none;border:1px solid var(--border);color:var(--text-dim);
-  font-size:10px;padding:4px 10px;cursor:pointer;font-family:'Share Tech Mono',monospace;
-  transition:all .2s;
-}
-.board-filter-btn:hover, .board-filter-btn.active{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
+.board-item-num{font-size:10px; color:var(--text-dim); min-width:28px; padding-top:2px; flex-shrink:0;}
+.board-item-cat{color:var(--green-dim); font-size:11px; margin-right:6px; font-weight:bold;}
+.board-item-pinned{color:var(--green); font-size:10px; margin-right:6px; font-weight:bold;}
+.board-item-title{flex:1; font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--text); transition:color .15s; cursor:pointer; word-break:keep-all; min-width:0;}
+.board-item-meta{font-size:9px; color:var(--text-dim); white-space:nowrap;}
+.board-filters{display:flex; gap:8px; margin:12px 0; flex-wrap:wrap;}
+.board-filter-btn{ background:none; border:1px solid var(--border); color:var(--text-dim); font-size:10px; padding:4px 10px; cursor:pointer; font-family:'Share Tech Mono',monospace; transition:all .2s; }
+.board-filter-btn:hover, .board-filter-btn.active{border-color:var(--green); color:var(--green); box-shadow:0 0 8px var(--green-glow);}
 .board-filter-btn.active{background:var(--green-glow);}
 
 /* ── PHOTO GALLERY ── */
-.photo-gallery-container{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
-  gap:12px;
-  margin-top:12px;
-}
-.photo-gallery-item{
-  position:relative;
-  border:1px solid var(--border);
-  overflow:hidden;
-  aspect-ratio:1;
-  cursor:pointer;
-  transition:all .2s;
-}
-.photo-gallery-item:hover{
-  border-color:var(--green);
-  box-shadow:0 0 12px var(--green-glow);
-}
-.photo-gallery-img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:block;
-}
-.photo-gallery-overlay{
-  position:absolute;
-  inset:0;
-  background:rgba(0,0,0,0.7);
-  display:flex;
-  align-items:flex-end;
-  padding:12px;
-  opacity:0;
-  transition:opacity .2s;
-}
-.photo-gallery-item:hover .photo-gallery-overlay{
-  opacity:1;
-}
-.photo-gallery-info{
-  width:100%;
-}
-.photo-gallery-title{
-  font-size:12px;
-  color:var(--green);
-  font-weight:bold;
-  margin-bottom:4px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.photo-gallery-author{
-  font-size:10px;
-  color:var(--text-dim);
-}
+.photo-gallery-container{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-top:12px; }
+.photo-gallery-item{ position:relative; border:1px solid var(--border); overflow:hidden; aspect-ratio:1; cursor:pointer; transition:all .2s; }
+.photo-gallery-item:hover{ border-color:var(--green); box-shadow:0 0 12px var(--green-glow); }
+.photo-gallery-img{ width:100%; height:100%; object-fit:cover; display:block; }
+.photo-gallery-overlay{ position:absolute; inset:0; background:rgba(0,0,0,0.7); display:flex; align-items:flex-end; padding:12px; opacity:0; transition:opacity .2s; }
+.photo-gallery-item:hover .photo-gallery-overlay{ opacity:1; }
+.photo-gallery-info{ width:100%; }
+.photo-gallery-title{ font-size:12px; color:var(--green); font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.photo-gallery-author{ font-size:10px; color:var(--text-dim); }
 
-/* ── GALLERY ── */
-.gallery-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-top:14px;margin-bottom:8px;}
-.post-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px;}
-.post-gallery-img{width:100%;height:120px;object-fit:cover;border:1px solid var(--border);cursor:pointer;transition:all .15s;}
-.post-gallery-img:hover{border-color:var(--green);box-shadow:0 0 8px var(--green-glow);}
-
-.gallery-preview-container{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-top:8px;}
-.gallery-preview-item{position:relative;border:1px dashed var(--border);overflow:hidden;}
-.gallery-preview-img{width:100%;height:80px;object-fit:cover;display:block;}
-.gallery-remove-btn{position:absolute;top:2px;right:2px;background:rgba(255,65,65,0.8);border:none;color:white;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;}
-.gallery-remove-btn:hover{background:rgba(255,65,65,1);}
+/* ── GALLERY IN POST ── */
+.gallery-label{font-size:10px; color:var(--green); letter-spacing:2px; margin-top:14px; margin-bottom:8px;}
+.post-gallery-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; margin-top:8px;}
+.post-gallery-img{width:100%; height:120px; object-fit:cover; border:1px solid var(--border); cursor:pointer; transition:all .15s;}
+.post-gallery-img:hover{border-color:var(--green); box-shadow:0 0 8px var(--green-glow);}
+.gallery-preview-container{display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px; margin-top:8px;}
+.gallery-preview-item{position:relative; border:1px dashed var(--border); overflow:hidden;}
+.gallery-preview-img{width:100%; height:80px; object-fit:cover; display:block;}
+.gallery-remove-btn{position:absolute; top:2px; right:2px; background:rgba(255,65,65,0.8); border:none; color:white; width:20px; height:20px; border-radius:50%; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center;}
 
 /* ── COMMENTS ── */
-.comments-section{margin-top:20px;border-top:1px solid var(--border);padding-top:14px;}
-.comments-label{font-size:10px;color:var(--green);letter-spacing:2px;margin-bottom:12px;}
-.comment-item{border-left:2px solid var(--green-dark);padding:10px 12px;margin-bottom:10px;background:rgba(0,255,65,0.02);}
-.comment-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
-.comment-author{font-size:10px;color:var(--green);font-weight:bold;}
-.comment-date{font-size:9px;color:var(--text-dim);}
-.comment-body{font-family:'Noto Sans KR',sans-serif;font-size:12px;color:var(--text);line-height:1.6;}
-
-.comment-form{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;}
+.comments-section{margin-top:20px; border-top:1px solid var(--border); padding-top:14px;}
+.comments-label{font-size:10px; color:var(--green); letter-spacing:2px; margin-bottom:12px;}
+.comment-item{border-left:2px solid var(--green-dark); padding:10px 12px; margin-bottom:10px; background:rgba(0,255,65,0.02);}
+.comment-header{display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;}
+.comment-author{font-size:10px; color:var(--green); font-weight:bold;}
+.comment-date{font-size:9px; color:var(--text-dim);}
+.comment-body{font-family:'Noto Sans KR',sans-serif; font-size:12px; color:var(--text); line-height:1.6;}
+.comment-form{margin-top:14px; border-top:1px solid var(--border); padding-top:12px;}
 .comment-form-group{margin-bottom:8px;}
-.comment-form-label{font-size:9px;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:4px;}
-.comment-form-input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--green);font-family:'Noto Sans KR',sans-serif;font-size:12px;padding:6px 10px;outline:none;transition:border-color .15s;}
-.comment-form-input:focus{border-color:var(--green);box-shadow:0 0 6px var(--green-glow);}
-.comment-form-textarea{width:100%;height:80px;resize:vertical;}
-.comment-submit{font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 14px;border:1px solid var(--green-dim);color:var(--green-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;margin-top:6px;}
-.comment-submit:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 6px var(--green-glow);}
+.comment-form-label{font-size:9px; color:var(--text-dim); letter-spacing:1px; display:block; margin-bottom:4px;}
+.comment-form-input{width:100%; background:var(--bg); border:1px solid var(--border); color:var(--green); font-family:'Noto Sans KR',sans-serif; font-size:12px; padding:6px 10px; outline:none; transition:border-color .15s;}
+.comment-form-input:focus{border-color:var(--green); box-shadow:0 0 6px var(--green-glow);}
+.comment-form-textarea{width:100%; height:80px; resize:vertical;}
+.comment-submit{font-family:'Share Tech Mono',monospace; font-size:10px; padding:6px 14px; border:1px solid var(--green-dim); color:var(--green-dim); background:none; cursor:pointer; letter-spacing:1px; transition:all .15s; margin-top:6px;}
+.comment-submit:hover{border-color:var(--green); color:var(--green); box-shadow:0 0 6px var(--green-glow);}
 
-/* ── EDIT OVERLAY ── */
+/* ── UI ELEMENTS ── */
 .editable-block{position:relative;}
-.edit-overlay-btn{
-  display:none;position:absolute;top:0;right:0;
-  font-family:'Share Tech Mono',monospace;font-size:9px;padding:3px 8px;
-  border:1px solid var(--text-dim);color:var(--text-dim);
-  background:var(--bg);cursor:pointer;letter-spacing:1px;transition:all .15s;z-index:5;
-}
-.edit-overlay-btn:hover{border-color:var(--green);color:var(--green);}
+.edit-overlay-btn{ display:none; position:absolute; top:0; right:0; font-family:'Share Tech Mono',monospace; font-size:9px; padding:3px 8px; border:1px solid var(--text-dim); color:var(--text-dim); background:var(--bg); cursor:pointer; letter-spacing:1px; transition:all .15s; z-index:5; }
+.edit-overlay-btn:hover{border-color:var(--green); color:var(--green);}
 .admin-logged-in .edit-overlay-btn{display:block;}
-.editable-inline-input{background:var(--bg);border:1px solid var(--green-dim);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:inherit;padding:2px 6px;outline:none;width:100%;}
-
-/* ── BUTTONS ── */
-.btn{font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 10px;border:1px solid var(--text-dim);color:var(--text-dim);background:none;cursor:pointer;letter-spacing:1px;transition:all .15s;}
-.btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 6px var(--green-glow);}
-.btn-g{border-color:var(--green);color:var(--green);}
+.editable-inline-input{background:var(--bg); border:1px solid var(--green-dim); color:var(--green); font-family:'Share Tech Mono',monospace; font-size:inherit; padding:2px 6px; outline:none; width:100%;}
+.btn{font-family:'Share Tech Mono',monospace; font-size:9px; padding:4px 10px; border:1px solid var(--text-dim); color:var(--text-dim); background:none; cursor:pointer; letter-spacing:1px; transition:all .15s;}
+.btn:hover{border-color:var(--green); color:var(--green); box-shadow:0 0 6px var(--green-glow);}
+.btn-g{border-color:var(--green); color:var(--green);}
 .btn-g:hover{background:var(--green-glow);}
-.btn-r{border-color:#ff414144;color:#ff4141;}
-.btn-r:hover{background:#ff41411a;border-color:#ff4141;}
-.write-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 14px;border:1px solid var(--green-dim);color:var(--green-dim);background:none;cursor:pointer;letter-spacing:1px;margin-bottom:14px;transition:all .15s;}
-.write-btn:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 8px var(--green-glow);}
+.btn-r{border-color:#ff414144; color:#ff4141;}
+.btn-r:hover{background:#ff41411a; border-color:#ff4141;}
+.write-btn{font-family:'Share Tech Mono',monospace; font-size:10px; padding:6px 14px; border:1px solid var(--green-dim); color:var(--green-dim); background:none; cursor:pointer; letter-spacing:1px; margin-bottom:14px; transition:all .15s;}
+.write-btn:hover{border-color:var(--green); color:var(--green); box-shadow:0 0 8px var(--green-glow);}
 .admin-only{display:none!important;}
 .admin-logged-in .admin-only{display:inline-block!important;}
 
 /* ── MODAL ── */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;align-items:center;justify-content:center;padding:16px;}
+.modal-bg{display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:1000; align-items:center; justify-content:center; padding:16px;}
 .modal-bg.open{display:flex;}
-.modal{
-  background:var(--panel);border:1px solid var(--green-dim);
-  padding:24px 24px;width:100%;max-width:600px;
-  position:relative;box-shadow:0 0 40px rgba(0,255,65,.1);
-  max-height:90vh;overflow-y:auto;
-}
-.modal-title{font-family:'VT323',monospace;font-size:26px;color:var(--green);margin-bottom:18px;text-shadow:0 0 10px rgba(0,255,65,.4);}
-.modal-close{position:absolute;top:12px;right:14px;background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;font-family:'Share Tech Mono',monospace;transition:color .15s;}
+.modal{ background:var(--panel); border:1px solid var(--green-dim); padding:24px 24px; width:100%; max-width:600px; position:relative; box-shadow:0 0 40px rgba(0,255,65,.1); max-height:90vh; overflow-y:auto; }
+.modal-title{font-family:'VT323',monospace; font-size:26px; color:var(--green); margin-bottom:18px; text-shadow:0 0 10px rgba(0,255,65,.4);}
+.modal-close{position:absolute; top:12px; right:14px; background:none; border:none; color:var(--text-dim); font-size:18px; cursor:pointer; font-family:'Share Tech Mono',monospace; transition:color .15s;}
 .modal-close:hover{color:var(--green);}
 .form-group{margin-bottom:14px;}
-.form-label{font-size:9px;letter-spacing:2px;color:var(--text-dim);display:block;margin-bottom:6px;}
-.form-input,.form-textarea{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--green);font-family:'Share Tech Mono',monospace;font-size:12px;padding:8px 12px;outline:none;transition:border-color .15s;}
-.form-input:focus,.form-textarea:focus{border-color:var(--green);box-shadow:0 0 8px var(--green-glow);}
-.form-textarea{height:110px;resize:vertical;font-family:'Noto Sans KR',sans-serif;font-size:12px;}
-.form-submit{font-family:'Share Tech Mono',monospace;font-size:11px;padding:8px 20px;border:1px solid var(--green);color:var(--green);background:none;cursor:pointer;letter-spacing:2px;transition:all .15s;width:100%;margin-top:8px;}
-.form-submit:hover{background:var(--green-glow);box-shadow:0 0 12px var(--green-glow);}
-.error-text{font-size:10px;color:#ff4141;margin-top:8px;display:none;}
-.post-view-title{font-family:'VT323',monospace;font-size:26px;color:var(--green);margin-bottom:4px;}
-.post-view-meta{font-size:10px;color:var(--text-dim);margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);}
-.post-view-body{font-family:'Noto Sans KR',sans-serif;font-size:13px;color:var(--text);line-height:2;white-space:pre-wrap;}
-.member-photo-prev-img{width:72px;height:90px;border:1px solid var(--border);object-fit:cover;display:block;background:var(--green-dark);}
+.form-label{font-size:9px; letter-spacing:2px; color:var(--text-dim); display:block; margin-bottom:6px;}
+.form-input,.form-textarea{width:100%; background:var(--bg); border:1px solid var(--border); color:var(--green); font-family:'Share Tech Mono',monospace; font-size:12px; padding:8px 12px; outline:none; transition:border-color .15s;}
+.form-input:focus,.form-textarea:focus{border-color:var(--green); box-shadow:0 0 8px var(--green-glow);}
+.form-textarea{height:110px; resize:vertical; font-family:'Noto Sans KR',sans-serif; font-size:12px;}
+.form-submit{font-family:'Share Tech Mono',monospace; font-size:11px; padding:8px 20px; border:1px solid var(--green); color:var(--green); background:none; cursor:pointer; letter-spacing:2px; transition:all .15s; width:100%; margin-top:8px;}
+.form-submit:hover{background:var(--green-glow); box-shadow:0 0 12px var(--green-glow);}
+.error-text{font-size:10px; color:#ff4141; margin-top:8px; display:none;}
+.post-view-title{font-family:'VT323',monospace; font-size:26px; color:var(--green); margin-bottom:4px;}
+.post-view-meta{font-size:10px; color:var(--text-dim); margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);}
+.post-view-body{font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--text); line-height:2; white-space:pre-wrap;}
+.member-photo-prev-img{width:72px; height:90px; border:1px solid var(--border); object-fit:cover; display:block; background:var(--green-dark);}
 input[type="file"]{display:none;}
+#modalImageDisplay{max-width:100%; max-height:80vh; border:1px solid var(--green-dim);}
 
-#modalImageDisplay{max-width:100%;max-height:80vh;border:1px solid var(--green-dim);}
-
-/* ══════════════════════════════════
-   MOBILE RESPONSIVE  ≤ 700px
-══════════════════════════════════ */
 @media (max-width:700px) {
-
   :root { --sidebar-w: 200px; }
-
-  html, body { overflow: hidden; }
-
   #sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); }
   #sidebar.open { transform: translateX(0); }
-
   #topbar { display: flex; }
   #hamburger { display: block; }
-
   .home-header { padding: 24px 20px 16px; }
   .home-title { font-size: 32px; }
   .home-grid { grid-template-columns: 1fr; }
@@ -1137,7 +959,7 @@ input[type="file"]{display:none;}
 <body>
 <div id="loadingScreen">
   <div class="loading-spinner"></div>
-  <div class="loading-text">LOADING</div>
+  <div class="loading-text">CONNECTING...</div>
 </div>
 
 <div class="ticker-wrap">
@@ -1146,59 +968,64 @@ input[type="file"]{display:none;}
 
 <div class="app-shell">
   <div id="topbar">
-    <button id="hamburger" onclick="toggleSidebar()">☰</button>
-    <div class="topbar-title">[ GUILD ]</div>
-    <div></div>
+    <button id="hamburger" onclick="toggleSidebar()">☰ MENU</button>
+    <div class="topbar-title">바른인간생활본부</div>
+    <div style="width:80px; text-align:right; font-size:9px; color:var(--text-dim)" id="clockDisplay">──:──:──</div>
   </div>
 
   <div class="body-row">
     <div id="sidebar">
       <div class="sidebar-logo">
-        <span class="logo-bracket">[</span>
-        <span class="logo-main">GUILD</span>
-        <span class="logo-bracket">]</span>
-        <div class="logo-sub">HUMANITAS</div>
-        <div class="admin-badge">ADMIN</div>
+        <span class="logo-bracket">[ ]</span>
+        <div class="logo-main">바른인간생활본부</div>
+        <div class="logo-sub">BHRH · GUILD SYSTEM</div>
+        <div class="admin-badge">▌ADMIN ONLINE▐</div>
       </div>
-
       <nav>
-        <div class="nav-label">MENU</div>
-        <a onclick="goto('home')">HOME</a>
-        <a onclick="goto('guild')">GUILD</a>
-        <a onclick="goto('members')">MEMBERS <span id="memberCountDisplay">0명</span></a>
-        <a onclick="goto('board')">BOARD</a>
+        <div class="nav-label">// NAVIGATE</div>
+        <a class="active" onclick="goto('home')"><span>HOME</span></a>
+        <a onclick="goto('guild')"><span>GUILD DESC</span></a>
+        <a onclick="goto('members')"><span>MEMBERS</span></a>
+        <a onclick="goto('board')"><span>BOARD</span></a>
       </nav>
-
       <div class="sidebar-footer">
-        <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ]</button>
-        <button class="admin-btn" id="logoutBtn" style="display:none" onclick="adminLogout()">[ LOGOUT ]</button>
+        <div>SYS VER 0.9.5b</div>
+        <div>STATUS: <span style="color:var(--green)">ONLINE</span></div>
+        <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ACCESS ]</button>
+        <button class="admin-btn" id="logoutBtn" onclick="adminLogout()" style="display:none; border-color:#ff4141; color:#ff4141;">[ LOGOUT ]</button>
       </div>
       <div id="sidebarOverlay" onclick="closeSidebar()"></div>
     </div>
 
     <div id="main">
       <div id="content">
-
         <!-- HOME -->
         <div class="page active" id="page-home">
           <div class="home-header">
             <div class="home-corner">
-              <div>[ <span id="clockDisplay">──:──:──</span> ]</div>
-              <div class="coord">SYSTEM ONLINE</div>
+              <div>SYS.ERIN.NETWORK</div>
+              <div class="coord">37°N · 127°E · ERN</div>
+              <div id="clockDisplayDesktop">──:──:──</div>
             </div>
-            <div class="home-title">HUMANITAS</div>
-            <div class="home-title-sub" id="homeTitleSub">LOADING...</div>
+            <div class="home-title">바른인간생활본부</div>
+            <div class="home-title-sub editable-block" style="margin-top:6px">
+              <span id="homeTitleSub">GUILD · NON-HUMAN ADAPTATION DIVISION</span>
+              <button class="edit-overlay-btn" onclick="editInline('homeTitleSub')">EDIT</button>
+            </div>
           </div>
-
           <div class="home-body">
             <div class="notice-block">
-              <div class="notice-text" id="mainNotice">로딩 중...</div>
+              <div class="notice-text" id="mainNotice">로딩 중...<span class="cursor"></span></div>
             </div>
-
             <div class="home-grid">
               <div class="info-card">
+                <div class="info-card-label">// GUILD STATUS</div>
+                <div class="info-card-value" id="memberCountDisplay">─명</div>
+                <div class="info-card-desc">등록된 길드원</div>
+              </div>
+              <div class="info-card">
                 <div class="info-card-label">// CURRENT OBJ</div>
-                <div class="info-card-value editable-block" style="font-size:18px;padding-top:4px">
+                <div class="info-card-value editable-block" style="font-size:18px; padding-top:4px">
                   <span id="currentObj">─</span>
                   <button class="edit-overlay-btn" onclick="editInline('currentObj')">EDIT</button>
                 </div>
@@ -1226,28 +1053,23 @@ input[type="file"]{display:none;}
             </div>
           </div>
         </div>
-
         <!-- GUILD DESC -->
         <div class="page" id="page-guild">
           <div class="guild-page">
             <div class="section-header">[ GUILD DESC ]</div>
             <div class="section-sub">// 바른인간생활본부 · 공식 소개 파일</div>
-
             <div class="guild-block">
               <div class="guild-block-title">// OVERVIEW</div>
               <div class="guild-text" id="guildOverview">로딩 중...</div>
             </div>
-
             <div class="guild-block">
               <div class="guild-block-title">// OBJECTIVES</div>
               <div class="guild-text" id="guildObjectives">로딩 중...</div>
             </div>
-
             <div id="extraSectionsContainer"></div>
             <button class="btn btn-g admin-only" style="margin-top:4px" onclick="openAddSection()">[ + ADD SECTION ]</button>
           </div>
         </div>
-
         <!-- MEMBERS -->
         <div class="page" id="page-members">
           <div class="members-page">
@@ -1257,7 +1079,6 @@ input[type="file"]{display:none;}
             <div class="member-grid" id="memberGrid"></div>
           </div>
         </div>
-
         <!-- BOARD -->
         <div class="page" id="page-board">
           <div class="board-page">
@@ -1266,7 +1087,7 @@ input[type="file"]{display:none;}
               <span id="boardSub">// 게시판 · 연구 기록 · 토론 아카이브</span>
               <button class="edit-overlay-btn" onclick="editInline('boardSub')">EDIT</button>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-top:12px;">
               <div class="board-filters">
                 <button class="board-filter-btn active" onclick="filterBoard('전체')">전체</button>
                 <button class="board-filter-btn" onclick="filterBoard('공지')">공지</button>
@@ -1279,20 +1100,16 @@ input[type="file"]{display:none;}
             <div class="board-list" id="boardList"></div>
           </div>
         </div>
-
-      </div><!-- #content -->
-
+      </div>
       <div class="status-bar">
         <div><span class="status-dot"></span>SYSTEM ONLINE · FIREBASE SYNC</div>
         <div id="statusTime">──:──:──</div>
       </div>
-    </div><!-- #main -->
+    </div>
+  </div>
+</div>
 
-  </div><!-- .body-row -->
-</div><!-- .app-shell -->
-
-<!-- ── MODALS ── -->
-
+<!-- MODALS -->
 <div class="modal-bg" id="adminLoginModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('adminLoginModal')">[ X ]</button>
@@ -1312,14 +1129,14 @@ input[type="file"]{display:none;}
     <div class="modal-title">// ADD MEMBER</div>
     <div class="form-group">
       <label class="form-label">PHOTO (증명사진)</label>
-      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap">
         <div>
           <img class="member-photo-prev-img" id="newPhotoImg" src="" style="display:none">
-          <div id="newPhotoPlaceholder" style="width:72px;height:90px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-dim)">NO IMG</div>
-          <button class="btn btn-g" onclick="document.getElementById('newPhotoFile').click()" style="margin-top:6px;display:block;width:72px;text-align:center">[ UP ]</button>
+          <div id="newPhotoPlaceholder" style="width:72px; height:90px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--text-dim)">NO IMG</div>
+          <button class="btn btn-g" onclick="document.getElementById('newPhotoFile').click()" style="margin-top:6px; display:block; width:72px; text-align:center">[ UP ]</button>
           <input type="file" id="newPhotoFile" accept="image/*" onchange="previewPhoto(this,'newPhotoImg','newPhotoPlaceholder')">
         </div>
-        <div style="flex:1;min-width:140px">
+        <div style="flex:1; min-width:140px">
           <div class="form-group"><label class="form-label">NAME</label><input class="form-input" type="text" id="mName" placeholder="캐릭터명"></div>
           <div class="form-group" style="margin-bottom:0"><label class="form-label">TYPE / 종족</label><input class="form-input" type="text" id="mType" placeholder="미지의 존재 · etc"></div>
         </div>
@@ -1338,13 +1155,13 @@ input[type="file"]{display:none;}
     <input type="hidden" id="editMIdx">
     <div class="form-group">
       <label class="form-label">PHOTO</label>
-      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap">
         <div>
           <img class="member-photo-prev-img" id="editPhotoImg" src="">
-          <button class="btn btn-g" onclick="document.getElementById('editPhotoFile').click()" style="margin-top:6px;display:block;width:72px;text-align:center">[ CHANGE ]</button>
+          <button class="btn btn-g" onclick="document.getElementById('editPhotoFile').click()" style="margin-top:6px; display:block; width:72px; text-align:center">[ CHANGE ]</button>
           <input type="file" id="editPhotoFile" accept="image/*" onchange="previewPhoto(this,'editPhotoImg',null)">
         </div>
-        <div style="flex:1;min-width:140px">
+        <div style="flex:1; min-width:140px">
           <div class="form-group"><label class="form-label">NAME</label><input class="form-input" type="text" id="editMName"></div>
           <div class="form-group" style="margin-bottom:0"><label class="form-label">TYPE / 종족</label><input class="form-input" type="text" id="editMType"></div>
         </div>
@@ -1362,7 +1179,7 @@ input[type="file"]{display:none;}
     <div class="modal-title">// WRITE POST</div>
     <div class="form-group">
       <label class="form-label">CATEGORY</label>
-      <select class="form-input" id="postCategory" style="background:var(--panel);color:var(--green);border:1px solid var(--border);">
+      <select class="form-input" id="postCategory" style="background:var(--panel); color:var(--green); border:1px solid var(--border);">
         <option value="공지">공지</option>
         <option value="사진">사진</option>
         <option value="관계구함">관계구함</option>
@@ -1372,14 +1189,12 @@ input[type="file"]{display:none;}
     <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="postTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="postAuthor" placeholder="작성자"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="postContent" placeholder="내용" style="height:140px"></textarea></div>
-    
     <div class="form-group">
       <label class="form-label">GALLERY (선택사항)</label>
-      <button class="btn btn-g" onclick="addGalleryImage()" style="width:100%;margin-bottom:8px">[ + ADD IMAGE ]</button>
+      <button class="btn btn-g" onclick="addGalleryImage()" style="width:100%; margin-bottom:8px">[ + ADD IMAGE ]</button>
       <input type="file" id="galleryFileInput" accept="image/*" onchange="handleGalleryFile(this)">
       <div id="galleryPreviewContainer" class="gallery-preview-container"></div>
     </div>
-    
     <button class="form-submit" onclick="savePost()">[ SUBMIT ]</button>
   </div>
 </div>
@@ -1391,7 +1206,7 @@ input[type="file"]{display:none;}
     <input type="hidden" id="editPostKey">
     <div class="form-group">
       <label class="form-label">CATEGORY</label>
-      <select class="form-input" id="editPostCategory" style="background:var(--panel);color:var(--green);border:1px solid var(--border);">
+      <select class="form-input" id="editPostCategory" style="background:var(--panel); color:var(--green); border:1px solid var(--border);">
         <option value="공지">공지</option>
         <option value="사진">사진</option>
         <option value="관계구함">관계구함</option>
@@ -1401,14 +1216,12 @@ input[type="file"]{display:none;}
     <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="editPostTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="editPostAuthor" placeholder="작성자"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="editPostContent" placeholder="내용" style="height:140px"></textarea></div>
-    
     <div class="form-group">
       <label class="form-label">GALLERY</label>
-      <button class="btn btn-g" onclick="addEditGalleryImage()" style="width:100%;margin-bottom:8px">[ + ADD IMAGE ]</button>
+      <button class="btn btn-g" onclick="addEditGalleryImage()" style="width:100%; margin-bottom:8px">[ + ADD IMAGE ]</button>
       <input type="file" id="editGalleryFileInput" accept="image/*" onchange="handleEditGalleryFile(this)">
       <div id="editGalleryPreviewContainer" class="gallery-preview-container"></div>
     </div>
-    
     <button class="form-submit" onclick="saveEditPost()">[ SAVE CHANGES ]</button>
   </div>
 </div>
@@ -1420,13 +1233,10 @@ input[type="file"]{display:none;}
     <div class="post-view-title" id="vPostTitle"></div>
     <div class="post-view-meta" id="vPostMeta"></div>
     <div class="post-view-body" id="vPostBody"></div>
-    
     <div id="vPostGallery"></div>
-    
     <div class="comments-section">
       <div class="comments-label">// COMMENTS</div>
       <div id="vPostComments"></div>
-      
       <div class="comment-form">
         <div class="comment-form-group">
           <label class="comment-form-label">AUTHOR</label>
@@ -1439,8 +1249,7 @@ input[type="file"]{display:none;}
         <button class="comment-submit" onclick="saveComment()">[ SUBMIT COMMENT ]</button>
       </div>
     </div>
-    
-    <div id="vPostAdmin" style="margin-top:14px;text-align:right"></div>
+    <div id="vPostAdmin" style="margin-top:14px; text-align:right"></div>
   </div>
 </div>
 
@@ -1463,9 +1272,9 @@ input[type="file"]{display:none;}
 </div>
 
 <div class="modal-bg" id="imageViewModal">
-  <div class="modal" style="max-width:90vw;display:flex;align-items:center;justify-content:center;padding:0">
+  <div class="modal" style="max-width:90vw; display:flex; align-items:center; justify-content:center; padding:0">
     <button class="modal-close" onclick="closeModal('imageViewModal')">[ X ]</button>
-    <img id="modalImageDisplay" src="" style="max-width:100%;max-height:85vh;object-fit:contain;">
+    <img id="modalImageDisplay" src="" style="max-width:100%; max-height:85vh; object-fit:contain;">
   </div>
 </div>
 
@@ -1478,17 +1287,5 @@ input[type="file"]{display:none;}
     <button class="form-submit" id="addSectionSubmit" onclick="saveSection()">[ ADD ]</button>
   </div>
 </div>
-
-<script>
-// desktop clock sync (separate element from mobile topbar)
-function syncDesktopClock() {
-  const t = new Date();
-  const s = [t.getHours(),t.getMinutes(),t.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
-  const el = document.getElementById('clockDisplayDesktop');
-  if (el) el.textContent = s;
-}
-setInterval(syncDesktopClock, 1000);
-syncDesktopClock();
-</script>
 </body>
 </html>
