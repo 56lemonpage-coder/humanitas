@@ -378,11 +378,12 @@ function renderBoard() {
     item.className='board-item';
     const catTag = p.category ? `<span class="board-item-cat">[${p.category}]</span>` : '';
     const pinnedTag = p.pinned ? `<span class="board-item-pinned">[ 📌 고정 ]</span>` : '';
+    const authorDelBtn = p.pw ? `<button class="btn btn-r" onclick="event.stopPropagation();confirmPostAction('${p._key}','delete')">[ 삭제 ]</button>` : '';
     item.innerHTML=`
       <span class="board-item-num">${String(i+1).padStart(3,'0')}</span>
       <span class="board-item-title" onclick="viewPost('${p._key}')">${pinnedTag}${catTag} ${p.title}</span>
       <span class="board-item-meta">${p.author} · ${p.date}</span>
-      ${isAdmin?`<button class="btn btn-r" onclick="delPost('${p._key}')">[ DEL ]</button>`:''}`;
+      ${isAdmin?`<button class="btn btn-r" onclick="delPost('${p._key}')">[ DEL ]</button>`:authorDelBtn}`;
     list.appendChild(item);
   });
 }
@@ -426,6 +427,7 @@ window.savePost = async () => {
   if(!title||!body) return;
   const author=document.getElementById('postAuthor').value.trim()||'익명';
   const category=document.getElementById('postCategory').value;
+  const pw=document.getElementById('postPassword').value.trim();
   const now=new Date();
   const date=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
   
@@ -435,11 +437,13 @@ window.savePost = async () => {
     if(img.src && img.src !== '') galleryImgs.push(img.src);
   });
   
-  await dbPush('posts',{title,author,date,body,category,deleted:false,ts:Date.now(),gallery:galleryImgs,pinned:false});
+  const links = collectSites('postLinksList');
+  await dbPush('posts',{title,author,date,body,category,deleted:false,ts:Date.now(),gallery:galleryImgs,pinned:false,pw:pw||'',links});
   closeModal('writePostModal');
-  ['postTitle','postAuthor','postContent'].forEach(id=>document.getElementById(id).value='');
+  ['postTitle','postAuthor','postContent','postPassword'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('postCategory').value = '아무말';
   document.getElementById('galleryPreviewContainer').innerHTML='';
+  document.getElementById('postLinksList').innerHTML='';
 };
 
 window.addGalleryImage = () => {
@@ -468,6 +472,17 @@ window.viewPost = key => {
   document.getElementById('vPostTitle').textContent=p.title;
   document.getElementById('vPostMeta').textContent=`AUTHOR: ${p.author}  ·  DATE: ${p.date}`;
   document.getElementById('vPostBody').textContent=p.body;
+
+  // 링크 섹션
+  const vPostLinks = document.getElementById('vPostLinks');
+  if (p.links && p.links.length > 0) {
+    vPostLinks.innerHTML = '<div class="gallery-label">// LINKS</div>' +
+      p.links.map(l => `<a class="post-link-item" href="${l.url}" target="_blank" rel="noopener noreferrer">⟶ ${l.label || l.url}</a>`).join('');
+    vPostLinks.style.display = 'block';
+  } else {
+    vPostLinks.innerHTML = '';
+    vPostLinks.style.display = 'none';
+  }
   
   const galleryContainer = document.getElementById('vPostGallery');
   if(p.gallery && p.gallery.length > 0) {
@@ -489,10 +504,15 @@ window.viewPost = key => {
   renderComments(key);
   document.getElementById('vPostKey').value = key;
   
-  document.getElementById('vPostAdmin').innerHTML=isAdmin
-    ?`<button class="btn btn-g" onclick="openEditPost('${key}')" style="margin-right:6px">[ EDIT ]</button>
-      <button class="btn btn-g" onclick="togglePinPost('${key}')" style="margin-right:6px">${p.pinned ? '[ 고정해제 ]' : '[ 고정 ]'}</button>
-      <button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE ]</button>`:'';
+  const authorBtns = p.pw
+    ? `<button class="btn btn-g" onclick="confirmPostAction('${key}','edit')" style="margin-right:6px">[ 수정 ]</button>
+       <button class="btn btn-r" onclick="confirmPostAction('${key}','delete')">[ 삭제 ]</button>`
+    : '';
+  document.getElementById('vPostAdmin').innerHTML = isAdmin
+    ? `<button class="btn btn-g" onclick="openEditPost('${key}')" style="margin-right:6px">[ EDIT ]</button>
+       <button class="btn btn-g" onclick="togglePinPost('${key}')" style="margin-right:6px">${p.pinned ? '[ 고정해제 ]' : '[ 고정 ]'}</button>
+       <button class="btn btn-r" onclick="delPost('${key}');closeModal('viewPostModal')">[ DELETE ]</button>`
+    : authorBtns;
   openModal('viewPostModal');
 };
 
@@ -527,6 +547,10 @@ window.openEditPost = (key) => {
     });
   }
   
+  const editLinksContainer = document.getElementById('editPostLinksList');
+  editLinksContainer.innerHTML = '';
+  (p.links || []).forEach(l => addSiteRow(editLinksContainer, l.label, l.url));
+
   closeModal('viewPostModal');
   openModal('editPostModal');
 };
@@ -546,7 +570,9 @@ window.saveEditPost = async () => {
     if(img.src && img.src !== '') galleryImgs.push(img.src);
   });
   
-  await dbUpd('posts/' + key, { title, author, body, category, gallery: galleryImgs });
+  const links = collectSites('editPostLinksList');
+  await dbUpd('posts/' + key, { title, author, body, category, gallery: galleryImgs, links });
+  // pw는 변경하지 않음 (기존 비밀번호 유지)
   closeModal('editPostModal');
   renderBoard();
 };
@@ -570,6 +596,23 @@ window.handleEditGalleryFile = (input) => {
     container.appendChild(wrapper);
   };
   r.readAsDataURL(f);
+};
+
+// ── post author auth ─────────────────────────────────────────
+window.confirmPostAction = (key, action) => {
+  const pw = prompt(action === 'edit' ? '수정하려면 비밀번호를 입력하세요:' : '삭제하려면 비밀번호를 입력하세요:');
+  if (pw === null) return;
+  const p = posts.find(x => x._key === key);
+  if (!p) return;
+  if (pw !== p.pw) { alert('비밀번호가 올바르지 않습니다.'); return; }
+  if (action === 'edit') {
+    closeModal('viewPostModal');
+    openEditPost(key);
+  } else {
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+    delPost(key);
+    closeModal('viewPostModal');
+  }
 };
 
 // ── post pin ─────────────────────────────────────────────────
@@ -962,6 +1005,11 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .gallery-preview-img{width:100%; height:80px; object-fit:cover; display:block;}
 .gallery-remove-btn{position:absolute; top:2px; right:2px; background:rgba(255,65,65,0.8); border:none; color:white; width:20px; height:20px; border-radius:50%; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center;}
 
+/* ── POST LINKS ── */
+.post-link-item{display:block; font-size:12px; color:var(--green); text-decoration:none; padding:5px 0; border-bottom:1px solid var(--border); letter-spacing:.03em; transition:color .15s;}
+.post-link-item:last-child{border-bottom:none;}
+.post-link-item:hover{color:#fff; text-shadow:0 0 8px var(--green);}
+
 /* ── COMMENTS ── */
 .comments-section{margin-top:20px; border-top:1px solid var(--border); padding-top:14px;}
 .comments-label{font-size:10px; color:var(--green); letter-spacing:2px; margin-bottom:12px;}
@@ -1276,7 +1324,13 @@ input[type="file"]{display:none;}
     </div>
     <div class="form-group"><label class="form-label">TITLE</label><input class="form-input" type="text" id="postTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="postAuthor" placeholder="작성자"></div>
+    <div class="form-group"><label class="form-label">PASSWORD <span style="font-size:9px;color:var(--text-dim)">(수정·삭제용 비밀번호)</span></label><input class="form-input" type="password" id="postPassword" placeholder="비밀번호 (선택사항)"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="postContent" placeholder="내용" style="height:140px"></textarea></div>
+    <div class="form-group">
+      <label class="form-label">LINKS <span style="font-size:9px;color:var(--text-dim)">(외부 링크 선택사항)</span></label>
+      <div id="postLinksList"></div>
+      <button class="btn btn-g" onclick="addSiteRow('postLinksList')" style="width:100%;margin-top:6px">[ + ADD LINK ]</button>
+    </div>
     <div class="form-group">
       <label class="form-label">GALLERY (선택사항)</label>
       <button class="btn btn-g" onclick="addGalleryImage()" style="width:100%; margin-bottom:8px">[ + ADD IMAGE ]</button>
@@ -1305,6 +1359,11 @@ input[type="file"]{display:none;}
     <div class="form-group"><label class="form-label">AUTHOR</label><input class="form-input" type="text" id="editPostAuthor" placeholder="작성자"></div>
     <div class="form-group"><label class="form-label">CONTENT</label><textarea class="form-textarea" id="editPostContent" placeholder="내용" style="height:140px"></textarea></div>
     <div class="form-group">
+      <label class="form-label">LINKS <span style="font-size:9px;color:var(--text-dim)">(외부 링크 선택사항)</span></label>
+      <div id="editPostLinksList"></div>
+      <button class="btn btn-g" onclick="addSiteRow('editPostLinksList')" style="width:100%;margin-top:6px">[ + ADD LINK ]</button>
+    </div>
+    <div class="form-group">
       <label class="form-label">GALLERY</label>
       <button class="btn btn-g" onclick="addEditGalleryImage()" style="width:100%; margin-bottom:8px">[ + ADD IMAGE ]</button>
       <input type="file" id="editGalleryFileInput" accept="image/*" onchange="handleEditGalleryFile(this)">
@@ -1321,6 +1380,7 @@ input[type="file"]{display:none;}
     <div class="post-view-title" id="vPostTitle"></div>
     <div class="post-view-meta" id="vPostMeta"></div>
     <div class="post-view-body" id="vPostBody"></div>
+    <div id="vPostLinks" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border)"></div>
     <div id="vPostGallery"></div>
     <div class="comments-section">
       <div class="comments-label">// COMMENTS</div>
