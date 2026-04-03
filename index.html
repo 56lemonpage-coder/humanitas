@@ -161,10 +161,10 @@ window.adminLogout = () => {
 // ── navigation ───────────────────────────────────────────────
 window.goto = (page) => {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(a=>a.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   const pages=['home','guild','members','board'];
-  document.querySelectorAll('nav a')[pages.indexOf(page)]?.classList.add('active');
+  document.querySelectorAll('.nav-btn')[pages.indexOf(page)]?.classList.add('active');
   closeSidebar();
   document.getElementById('content').scrollTop = 0;
 };
@@ -911,16 +911,19 @@ body::after {
 
 nav{flex:1; padding:12px 0;}
 .nav-label{font-size:9px; color:var(--text-dim); letter-spacing:3px; padding:6px 20px 4px;}
-nav a{
-  display:flex; align-items:center; gap:10px; padding:11px 20px;
+nav .nav-btn{
+  display:flex; align-items:center; gap:10px; padding:14px 20px;
   color:var(--text-dim); text-decoration:none; font-size:12px; letter-spacing:1px;
-  border-left:2px solid transparent; transition:all .15s; cursor:pointer;
-  min-height:48px; -webkit-tap-highlight-color:rgba(0,255,65,0.15);
-  touch-action:manipulation; user-select:none;
+  border-left:3px solid transparent; border-right:none; border-top:none; border-bottom:none;
+  transition:all .15s; cursor:pointer; width:100%; text-align:left;
+  background:none; font-family:'Share Tech Mono',monospace;
+  min-height:52px; -webkit-tap-highlight-color:rgba(0,255,65,0.2);
+  touch-action:manipulation; user-select:none; outline:none;
 }
-nav a::before{content:'>'; opacity:0; transition:opacity .1s; color:var(--green);}
-nav a:hover,nav a.active{color:var(--green); border-left-color:var(--green); background:var(--green-glow); text-shadow:0 0 8px var(--green);}
-nav a:hover::before,nav a.active::before{opacity:1;}
+nav .nav-btn::before{content:'>'; opacity:0; transition:opacity .1s; color:var(--green);}
+nav .nav-btn:hover, nav .nav-btn.active{color:var(--green); border-left-color:var(--green); background:var(--green-glow); text-shadow:0 0 8px var(--green);}
+nav .nav-btn:hover::before, nav .nav-btn.active::before{opacity:1;}
+nav .nav-btn:active{background:rgba(0,255,65,0.25);}
 
 .sidebar-footer{padding:10px 16px; border-top:1px solid var(--border); font-size:9px; color:var(--text-dim); line-height:1.8;}
 .admin-btn{
@@ -1113,7 +1116,7 @@ input[type="file"]{display:none;}
   .photo-gallery-container { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 
   /* 모바일 터치 개선 */
-  nav a { padding: 14px 20px; min-height: 52px; font-size: 13px; }
+  nav .nav-btn { padding: 14px 20px; min-height: 56px; font-size: 13px; }
   .btn, .admin-btn, .form-submit, .comment-submit, .board-filter-btn {
     min-height: 44px; touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(0,255,65,0.15);
@@ -1149,10 +1152,10 @@ input[type="file"]{display:none;}
       </div>
       <nav>
         <div class="nav-label">// NAVIGATE</div>
-        <a class="active" onclick="goto('home')"><span>HOME</span></a>
-        <a onclick="goto('guild')"><span>GUILD DESC</span></a>
-        <a onclick="goto('members')"><span>MEMBERS</span></a>
-        <a onclick="goto('board')"><span>BOARD</span></a>
+        <button class="nav-btn active" onclick="goto('home')"><span>HOME</span></button>
+        <button class="nav-btn" onclick="goto('guild')"><span>GUILD DESC</span></button>
+        <button class="nav-btn" onclick="goto('members')"><span>MEMBERS</span></button>
+        <button class="nav-btn" onclick="goto('board')"><span>BOARD</span></button>
       </nav>
       <div class="sidebar-footer">
         <div>SYS VER 0.9.5b</div>
