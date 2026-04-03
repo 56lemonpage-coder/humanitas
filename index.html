@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>바른인간생활본부</title>
 
 <!-- PWA -->
@@ -834,12 +834,15 @@ if ('serviceWorker' in navigator) {
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { height: 100%; overflow: hidden; }
+html { height: 100%; height: -webkit-fill-available; }
 body {
   background:var(--bg); color:var(--green);
   font-family:'Share Tech Mono',monospace;
   display:flex; flex-direction:column;
   position:relative;
+  height: 100%;
+  height: -webkit-fill-available;
+  overflow: hidden;
 }
 
 /* scanline & noise */
@@ -886,7 +889,7 @@ body::after {
 .loading-text{font-family:'VT323',monospace;font-size:24px;color:var(--green);text-shadow:0 0 12px var(--green);letter-spacing:4px;animation:blink 1s step-end infinite;}
 
 /* ── LAYOUT SHELL ── */
-.app-shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+.app-shell { display:flex; flex-direction:column; height:100vh; height:-webkit-fill-available; overflow:hidden; }
 .ticker-wrap {
   background:var(--green); padding:5px 0; overflow:hidden; border-bottom:1px solid var(--green-dim);
   flex-shrink:0; cursor:default; z-index:20; position:relative;
@@ -946,7 +949,7 @@ nav .nav-btn:active{background:rgba(0,255,65,0.25);}
 .status-bar{ padding:4px 16px; border-top:1px solid var(--border); font-size:9px; color:var(--text-dim); display:flex; justify-content:space-between; align-items:center; background:var(--panel); flex-shrink:0; letter-spacing:1px; }
 .status-dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:4px; animation:blink 2s ease-in-out infinite;}
 .scan-line-v{position:fixed; left:0; right:0; height:2px; background:linear-gradient(to right,transparent,var(--green-dim),transparent); opacity:.12; animation:scan-v 6s linear infinite; pointer-events:none; z-index:9997;}
-#content{ flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:var(--green-dim) var(--panel); }
+#content{ flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:var(--green-dim) var(--panel); -webkit-overflow-scrolling:touch; }
 #content::-webkit-scrollbar{width:4px;}
 #content::-webkit-scrollbar-track{background:var(--panel);}
 #content::-webkit-scrollbar-thumb{background:var(--green-dim);}
@@ -962,7 +965,7 @@ nav .nav-btn:active{background:rgba(0,255,65,0.25);}
 .home-corner .coord{color:var(--green-dim); font-size:10px;}
 .home-body{padding:28px 40px;}
 .notice-block{ border:1px solid var(--border); padding:18px 20px; position:relative; margin-bottom:20px; animation:pulse-border 4s ease-in-out infinite; }
-.notice-block::before{content:'// NOTICE'; position:absolute; top:-8px; left:16px; background:var(--bg); padding:0 8px; font-size:9px; color:var(--green-dim); letter-spacing:2px;}
+.notice-block::before{content:'// NOTICE'; position:absolute; top:-8px; left:16px; background:#020c04; padding:0 8px; font-size:9px; color:#00b32c; letter-spacing:2px;}
 .notice-text{font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--text); line-height:1.9; white-space:pre-wrap;}
 .cursor{display:inline-block; width:8px; height:14px; background:var(--green); margin-left:2px; vertical-align:middle; animation:blink 1s step-end infinite;}
 .home-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px;}
@@ -1103,9 +1106,9 @@ input[type="file"]{display:none;}
 
 @media (max-width:700px) {
   :root { --sidebar-w: 200px; }
-  #sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 100; }
+  #sidebar { position: fixed; left: 0; top: 0; height: 100vh; height: -webkit-fill-available; transform: translateX(-100%); z-index: 100; }
   #sidebar.open { transform: translateX(0); }
-  #topbar { display: flex; }
+  #topbar { display: flex; padding-top: max(10px, env(safe-area-inset-top)); }
   #hamburger { display: block; }
   .home-header { padding: 24px 20px 16px; }
   .home-title { font-size: 32px; }
@@ -1115,13 +1118,16 @@ input[type="file"]{display:none;}
   .member-grid { grid-template-columns: 1fr; }
   .photo-gallery-container { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 
+  /* iOS 노치/홈바 안전 영역 */
+  .app-shell { padding-bottom: env(safe-area-inset-bottom); }
+
   /* 모바일 터치 개선 */
   nav .nav-btn { padding: 14px 20px; min-height: 56px; font-size: 13px; }
   .btn, .admin-btn, .form-submit, .comment-submit, .board-filter-btn {
     min-height: 44px; touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(0,255,65,0.15);
   }
-  .modal { max-height: 90vh; overflow-y: auto; }
+  .modal { max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 }
 </style>
 </head>
