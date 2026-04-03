@@ -165,7 +165,7 @@ window.goto = (page) => {
   document.getElementById('page-'+page).classList.add('active');
   const pages=['home','guild','members','board'];
   document.querySelectorAll('nav a')[pages.indexOf(page)]?.classList.add('active');
-  if (window.innerWidth <= 700) closeSidebar();
+  closeSidebar();
   document.getElementById('content').scrollTop = 0;
 };
 
@@ -846,12 +846,14 @@ body {
 body::before {
   content:''; position:fixed; inset:0;
   background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,var(--scanline) 2px,var(--scanline) 4px);
-  pointer-events:none; z-index:9999; opacity:0.18;
+  pointer-events:none !important; z-index:9999; opacity:0.18;
+  touch-action:none;
 }
 body::after {
   content:''; position:fixed; inset:-50%; width:200%; height:200%;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-  opacity:.03; pointer-events:none; z-index:9998; animation:drift 8s steps(1) infinite;
+  opacity:.03; pointer-events:none !important; z-index:9998; animation:drift 8s steps(1) infinite;
+  touch-action:none;
 }
 
 @keyframes drift {
@@ -913,6 +915,8 @@ nav a{
   display:flex; align-items:center; gap:10px; padding:11px 20px;
   color:var(--text-dim); text-decoration:none; font-size:12px; letter-spacing:1px;
   border-left:2px solid transparent; transition:all .15s; cursor:pointer;
+  min-height:48px; -webkit-tap-highlight-color:rgba(0,255,65,0.15);
+  touch-action:manipulation; user-select:none;
 }
 nav a::before{content:'>'; opacity:0; transition:opacity .1s; color:var(--green);}
 nav a:hover,nav a.active{color:var(--green); border-left-color:var(--green); background:var(--green-glow); text-shadow:0 0 8px var(--green);}
@@ -928,9 +932,9 @@ nav a:hover::before,nav a.active::before{opacity:1;}
 .admin-btn:hover{border-color:var(--green); color:var(--green); box-shadow:0 0 8px var(--green-glow);}
 
 /* ── MOBILE ── */
-#sidebarOverlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99; }
+#sidebarOverlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:98; }
 #sidebarOverlay.active{display:block;}
-#hamburger{ display:none; background:none; border:none; color:var(--green); font-size:20px; cursor:pointer; padding:0 14px; font-family:'Share Tech Mono',monospace; letter-spacing:1px; }
+#hamburger{ display:none; background:none; border:none; color:var(--green); font-size:20px; cursor:pointer; padding:0 14px; font-family:'Share Tech Mono',monospace; letter-spacing:1px; min-height:48px; min-width:48px; touch-action:manipulation; -webkit-tap-highlight-color:rgba(0,255,65,0.15); }
 #topbar { display:none; align-items:center; justify-content:space-between; background:var(--panel); border-bottom:1px solid var(--border); padding:10px 16px; flex-shrink:0; z-index:50; }
 .topbar-title{font-family:'VT323',monospace; font-size:22px; color:var(--green); text-shadow:0 0 8px var(--green);}
 
@@ -1096,7 +1100,7 @@ input[type="file"]{display:none;}
 
 @media (max-width:700px) {
   :root { --sidebar-w: 200px; }
-  #sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); }
+  #sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 100; }
   #sidebar.open { transform: translateX(0); }
   #topbar { display: flex; }
   #hamburger { display: block; }
@@ -1107,6 +1111,14 @@ input[type="file"]{display:none;}
   .section-header { font-size: 24px; }
   .member-grid { grid-template-columns: 1fr; }
   .photo-gallery-container { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+
+  /* 모바일 터치 개선 */
+  nav a { padding: 14px 20px; min-height: 52px; font-size: 13px; }
+  .btn, .admin-btn, .form-submit, .comment-submit, .board-filter-btn {
+    min-height: 44px; touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0,255,65,0.15);
+  }
+  .modal { max-height: 90vh; overflow-y: auto; }
 }
 </style>
 </head>
@@ -1148,8 +1160,9 @@ input[type="file"]{display:none;}
         <button class="admin-btn" id="adminAccessBtn" onclick="openAdminLogin()">[ ADMIN ACCESS ]</button>
         <button class="admin-btn" id="logoutBtn" onclick="adminLogout()" style="display:none; border-color:#ff4141; color:#ff4141;">[ LOGOUT ]</button>
       </div>
-      <div id="sidebarOverlay" onclick="closeSidebar()"></div>
     </div>
+
+    <div id="sidebarOverlay" onclick="closeSidebar()"></div>
 
     <div id="main">
       <div id="content">
