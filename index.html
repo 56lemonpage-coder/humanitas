@@ -4,6 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>바른인간생활본부</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00ff41">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="바른인간">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#00ff41">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="바른인간생활본부">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="description" content="에린의 인외들을 위한 길드 · 바른 인간 연습 중">
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, set, get, onValue, push, remove, update }
@@ -793,6 +812,15 @@ document.querySelectorAll('.modal-bg').forEach(bg=>{
 document.getElementById('adminPwInput')?.addEventListener('keydown',e=>{ if(e.key==='Enter') window.tryLogin(); });
 
 boot();
+
+// ── Service Worker 등록 (PWA) ─────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.log('SW error:', err));
+  });
+}
 </script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Noto+Sans+KR:wght@300;400;700&display=swap');
@@ -1455,5 +1483,16 @@ input[type="file"]{display:none;}
     <div id="profileSites" style="display:none;border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:6px"></div>
   </div>
 </div>
+
+<!-- Service Worker 등록 -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('[PWA] Service Worker 등록 완료:', reg.scope))
+        .catch(err => console.warn('[PWA] Service Worker 등록 실패:', err));
+    });
+  }
+</script>
 </body>
 </html>
